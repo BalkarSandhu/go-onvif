@@ -1,0 +1,23 @@
+[
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:sc="http://www.w3.org/2003/05/soap-encoding" xmlns:dn="http://www.onvif.org/ver10/network/wsdl" xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing">
+  <s:Header>
+    <a:MessageID>uuid:2b83c977-a406-1b01-ab49-6fe144a2a406</a:MessageID>
+    <a:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</a:To>
+    <a:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/ProbeMatches</a:Action>
+    <a:RelatesTo>uuid:0e7aca1c-3bb6-4330-b295-bd1502f431da</a:RelatesTo>
+  </s:Header>
+  <s:Body>
+    <d:ProbeMatches>
+      <d:ProbeMatch>
+        <a:EndpointReference>
+          <a:Address>uuid:9e49c551-bcaa-b603-3656-b1f94ec4bcaa</a:Address>
+        </a:EndpointReference>
+        <d:Types>dn:NetworkVideoTransmitter tds:Device</d:Types>
+        <d:Scopes>onvif://www.onvif.org/location/country/_ onvif://www.onvif.org/name/CP_PLUS onvif://www.onvif.org/hardware/CP-UNC-TD41L4-MD onvif://www.onvif.org/Profile/Streaming onvif://www.onvif.org/type/Network_Video_Transmitter onvif://www.onvif.org/extension/unique_identifier onvif://www.onvif.org/Profile/T</d:Scopes>
+        <d:XAddrs>http://192.168.29.109/onvif/device_service</d:XAddrs>
+        <d:MetadataVersion>1</d:MetadataVersion>
+      </d:ProbeMatch>
+    </d:ProbeMatches>
+  </s:Body>
+</s:Envelope>]
