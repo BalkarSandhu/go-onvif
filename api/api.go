@@ -18,10 +18,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/use-go/onvif"
 	"github.com/use-go/onvif/device"
+	"github.com/use-go/onvif/event"
 	"github.com/use-go/onvif/gosoap"
 	"github.com/use-go/onvif/media"
 	"github.com/use-go/onvif/networking"
 	"github.com/use-go/onvif/ptz"
+
 	wsdiscovery "github.com/use-go/onvif/ws-discovery"
 )
 
@@ -441,6 +443,23 @@ func getMediaStructByName(name string) (interface{}, error) {
 
 }
 
+func getEventStructByName(name string) (interface {}, error) {
+	switch name {
+	case "GetEventProperties":
+		return &event.GetEventProperties{}, nil
+	case "CreatePullPointSubscription":
+		return &event.CreatePullPointSubscription{}, nil
+	case "Renew":
+		return &event.Renew{}, nil
+	case "Unsubscribe":
+		return &event.Unsubscribe{}, nil
+	case "GetServiceCapabilities":
+		return &event.GetServiceCapabilities{}, nil
+	default:
+		return nil, errors.New("there is no such method in the Event service")
+	}
+}
+
 var (
 	// LoggerContext is the builder of a zerolog.Logger that is exposed to the application so that
 	// options at the CLI might alter the formatting and the output of the logs.
@@ -471,6 +490,12 @@ func RunApi() {
 			Logger.Debug().Err(err).Msg("Failed to get rawx data")
 		}
 
+		fmt.Println("serviceName", serviceName)
+		fmt.Println("methodName", methodName)
+		fmt.Println("username", username)
+		fmt.Println("pass", pass)
+		fmt.Println("xaddr", xaddr)
+		fmt.Println("acceptedData", string(acceptedData))
 		message, err := callNecessaryMethod(serviceName, methodName, string(acceptedData), username, pass, xaddr)
 		if err != nil {
 			c.XML(http.StatusBadRequest, err.Error())
@@ -543,6 +568,8 @@ func callNecessaryMethod(serviceName, methodName, acceptedData, username, passwo
 		methodStruct, err = getPTZStructByName(methodName)
 	case "media":
 		methodStruct, err = getMediaStructByName(methodName)
+	case "event":
+		methodStruct, err = getEventStructByName(methodName) 
 	default:
 		return "", errors.New("there is no such service")
 	}
@@ -550,12 +577,16 @@ func callNecessaryMethod(serviceName, methodName, acceptedData, username, passwo
 		return "", errors.Annotate(err, "getStructByName")
 	}
 
+	fmt.Println("methodStruct", methodStruct)
+	fmt.Println("acceptedData", acceptedData)
 	resp, err := xmlAnalize(methodStruct, &acceptedData)
+	fmt.Println("resp", resp)
 	if err != nil {
 		return "", errors.Annotate(err, "xmlAnalize")
 	}
 
 	endpoint, err := getEndpoint(serviceName, xaddr)
+	fmt.Println("endpoint", endpoint)
 	if err != nil {
 		return "", errors.Annotate(err, "getEndpoint")
 	}
@@ -565,7 +596,10 @@ func callNecessaryMethod(serviceName, methodName, acceptedData, username, passwo
 	soap.AddRootNamespaces(onvif.Xlmns)
 	soap.AddWSSecurity(username, password)
 
+	fmt.Println("soap", soap)
+
 	servResp, err := networking.SendSoap(new(http.Client), endpoint, soap.String())
+	fmt.Println("servResp", servResp)
 	if err != nil {
 		return "", errors.Annotate(err, "SendSoap")
 	}
@@ -576,6 +610,7 @@ func callNecessaryMethod(serviceName, methodName, acceptedData, username, passwo
 	}
 
 	servResp.Body.Close()
+	
 
 	return string(rsp), nil
 }

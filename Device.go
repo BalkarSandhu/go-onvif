@@ -289,7 +289,7 @@ func (dev Device) callMethodDo(endpoint string, method interface{}) (*http.Respo
 		soap.AddWSSecurity(dev.params.Username, dev.params.Password)
 	}
 
-	fmt.Println(endpoint)
+	fmt.Println(soap)
 
 	return networking.SendSoap(dev.params.HttpClient, endpoint, soap.String())
 }

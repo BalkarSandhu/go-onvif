@@ -1627,7 +1627,6 @@ type NetworkProtocol struct {
 	Name      NetworkProtocolType      `xml:"onvif:Name"`
 	Enabled   xsd.Boolean              `xml:"onvif:Enabled"`
 	Port      xsd.Int                  `xml:"onvif:Port"`
-	Extension NetworkProtocolExtension `xml:"onvif:Extension"`
 }
 
 type NetworkProtocolExtension xsd.AnyType
