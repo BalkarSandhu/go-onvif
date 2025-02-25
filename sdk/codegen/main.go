@@ -10,10 +10,7 @@ import (
 	"text/template"
 )
 
-var mainTemplate = `// Code generated : DO NOT EDIT.
-// Copyright (c) 2022 Jean-Francois SMIGIELSKI
-// Distributed under the MIT License
-
+var mainTemplate = `
 package {{.Package}}
 
 import (

@@ -3,7 +3,6 @@ package onvif
 import (
 	"encoding/xml"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -188,7 +187,6 @@ func NewDevice(params DeviceParams) (*Device, error) {
 	getCapabilities := device.GetCapabilities{Category: "All"}
 
 	resp, err := dev.CallMethod(getCapabilities)
-	fmt.Println("resp", resp)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil, errors.New("camera is not available at " + dev.params.Xaddr + " or it does not support ONVIF services")
 	}
@@ -288,8 +286,6 @@ func (dev Device) callMethodDo(endpoint string, method interface{}) (*http.Respo
 	if dev.params.Username != "" && dev.params.Password != "" {
 		soap.AddWSSecurity(dev.params.Username, dev.params.Password)
 	}
-
-	fmt.Println(soap)
 
 	return networking.SendSoap(dev.params.HttpClient, endpoint, soap.String())
 }
