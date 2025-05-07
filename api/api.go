@@ -554,7 +554,7 @@ func RunApi() {
 		}
 	})
 
-	router.Run()
+	router.Run(":8081")
 }
 
 func callNecessaryMethod(serviceName, methodName, acceptedData, username, password, xaddr string) (string, error) {

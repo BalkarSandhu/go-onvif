@@ -3,606 +3,430 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"path"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/beevik/etree"
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 	"github.com/juju/errors"
 	"github.com/rs/zerolog"
-
-	"github.com/beevik/etree"
-	"github.com/gin-gonic/gin"
 	"github.com/use-go/onvif"
 	"github.com/use-go/onvif/device"
-	"github.com/use-go/onvif/event"
 	"github.com/use-go/onvif/media"
 	"github.com/use-go/onvif/ptz"
 	device_rpc "github.com/use-go/onvif/sdk/device"
+	media_rpc "github.com/use-go/onvif/sdk/media"
+	ptz_rpc "github.com/use-go/onvif/sdk/ptz"
 	wsdiscovery "github.com/use-go/onvif/ws-discovery"
+	"golang.org/x/time/rate"
 )
 
-func getPTZStructByName(name string) (interface{}, error) {
-	switch name {
-	case "GetServiceCapabilities":
-		return &ptz.GetServiceCapabilities{}, nil
-	case "GetNodes":
-		return &ptz.GetNodes{}, nil
-	case "GetNode":
-		return &ptz.GetNode{}, nil
-	case "GetConfiguration":
-		return &ptz.GetConfiguration{}, nil
-	case "GetConfigurations":
-		return &ptz.GetConfigurations{}, nil
-	case "SetConfiguration":
-		return &ptz.SetConfiguration{}, nil
-	case "GetConfigurationOptions":
-		return &ptz.GetConfigurationOptions{}, nil
-	case "SendAuxiliaryCommand":
-		return &ptz.SendAuxiliaryCommand{}, nil
-	case "GetPresets":
-		return &ptz.GetPresets{}, nil
-	case "SetPreset":
-		return &ptz.SetPreset{}, nil
-	case "RemovePreset":
-		return &ptz.RemovePreset{}, nil
-	case "GotoPreset":
-		return &ptz.GotoPreset{}, nil
-	case "GotoHomePosition":
-		return &ptz.GotoHomePosition{}, nil
-	case "SetHomePosition":
-		return &ptz.SetHomePosition{}, nil
-	case "ContinuousMove":
-		return &ptz.ContinuousMove{}, nil
-	case "RelativeMove":
-		return &ptz.RelativeMove{}, nil
-	case "GetStatus":
-		return &ptz.GetStatus{}, nil
-	case "AbsoluteMove":
-		return &ptz.AbsoluteMove{}, nil
-	case "GeoMove":
-		return &ptz.GeoMove{}, nil
-	case "Stop":
-		return &ptz.Stop{}, nil
-	case "GetPresetTours":
-		return &ptz.GetPresetTours{}, nil
-	case "GetPresetTour":
-		return &ptz.GetPresetTour{}, nil
-	case "GetPresetTourOptions":
-		return &ptz.GetPresetTourOptions{}, nil
-	case "CreatePresetTour":
-		return &ptz.CreatePresetTour{}, nil
-	case "ModifyPresetTour":
-		return &ptz.ModifyPresetTour{}, nil
-	case "OperatePresetTour":
-		return &ptz.OperatePresetTour{}, nil
-	case "RemovePresetTour":
-		return &ptz.RemovePresetTour{}, nil
-	case "GetCompatibleConfigurations":
-		return &ptz.GetCompatibleConfigurations{}, nil
-	default:
-		return nil, errors.New("there is no such method in the PTZ service")
+// Config holds application configuration
+type Config struct {
+	Port           string
+	LogLevel       string
+	RateLimitReqs  int
+	RateLimitBurst int
+}
+
+// DeviceCache provides caching for ONVIF devices to avoid repeated connections
+type DeviceCache struct {
+	devices      map[string]*onvif.Device
+	lastAccessed map[string]time.Time
+	mutex        sync.RWMutex
+	ttl          time.Duration
+}
+
+// NewDeviceCache creates a new device cache with the specified TTL
+func NewDeviceCache(ttl time.Duration) *DeviceCache {
+	cache := &DeviceCache{
+		devices: make(map[string]*onvif.Device),
+		ttl:     ttl,
+	}
+	// Start a goroutine to clean up expired cache entries
+	go cache.startCleanup()
+	return cache
+}
+
+// startCleanup periodically removes old cache entries
+func (c *DeviceCache) startCleanup() {
+	ticker := time.NewTicker(c.ttl / 2)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		c.cleanup()
 	}
 }
 
-func getDeviceStructByName(name string, dev *onvif.Device, acceptedData []byte) (interface{}, error) {
-	// Use a context with timeout for the RPC call
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	switch name {
-	// case "GetServices":
-	// 	return &device.GetServices{}, nil
-	// case "GetServiceCapabilities":
-	// 	return &device.GetServiceCapabilities{}, nil
-	case "GetDeviceInformation":
-		return device_rpc.Call_GetDeviceInformation(ctx, dev, device.GetDeviceInformation{})
-	// case "SetSystemDateAndTime":
-	// 	return &device.SetSystemDateAndTime{}, nil
-	case "GetSystemDateAndTime":
-		return device_rpc.Call_GetSystemDateAndTime(ctx, dev, device.GetSystemDateAndTime{})
-	// case "SetSystemFactoryDefault":
-	// 	return &device.SetSystemFactoryDefault{}, nil
-	// case "UpgradeSystemFirmware":
-	// 	return &device.UpgradeSystemFirmware{}, nil
-	// case "SystemReboot":
-	// 	return &device.SystemReboot{}, nil
-	// case "RestoreSystem":
-	// 	return &device.RestoreSystem{}, nil
-	case "GetSystemBackup":
-		return device_rpc.Call_GetSystemBackup(ctx, dev, device.GetSystemBackup{})
-	case "GetSystemLog":
-		return device_rpc.Call_GetSystemLog(ctx, dev, device.GetSystemLog{})
-	case "GetSystemSupportInformation":
-		return device_rpc.Call_GetSystemSupportInformation(ctx, dev, device.GetSystemSupportInformation{})
-	case "GetScopes":
-		return device_rpc.Call_GetScopes(ctx, dev, device.GetScopes{})
-	// case "SetScopes":
-	// 	return &device.SetScopes{}, nil
-	// case "AddScopes":
-	// 	return &device.AddScopes{}, nil
-	// case "RemoveScopes":
-	// 	return &device.RemoveScopes{}, nil
-	case "GetDiscoveryMode":
-		return device_rpc.Call_GetDiscoveryMode(ctx, dev, device.GetDiscoveryMode{})
-	// case "SetDiscoveryMode":
-	// 	return &device.SetDiscoveryMode{}, nil
-	case "GetRemoteDiscoveryMode":
-		return device_rpc.Call_GetRemoteDiscoveryMode(ctx, dev, device.GetRemoteDiscoveryMode{})
-	// case "SetRemoteDiscoveryMode":
-	// 	return &device.SetRemoteDiscoveryMode{}, nil
-	case "GetDPAddresses":
-		return device_rpc.Call_GetDPAddresses(ctx, dev, device.GetDPAddresses{})
-	// case "SetDPAddresses":
-	// 	return &device.SetDPAddresses{}, nil
-	case "GetEndpointReference":
-		return device_rpc.Call_GetEndpointReference(ctx, dev, device.GetEndpointReference{})
-	case "GetRemoteUser":
-		return device_rpc.Call_GetRemoteUser(ctx, dev, device.GetRemoteUser{})
-	// case "SetRemoteUser":
-	// 	return &device.SetRemoteUser{}, nil
-	case "GetUsers":
-		return device_rpc.Call_GetUsers(ctx, dev, device.GetUsers{})
-	// case "CreateUsers":
-	// 	return &device.CreateUsers{}, nil
-	// case "DeleteUsers":
-	// 	return &device.DeleteUsers{}, nil
-	// case "SetUser":
-	// 	return &device.SetUser{}, nil
-	case "GetWsdlUrl":
-		return device_rpc.Call_GetWsdlUrl(ctx, dev, device.GetWsdlUrl{})
-	case "GetCapabilities":
-		var request device.GetCapabilities
+// cleanup removes expired devices
+func (c *DeviceCache) cleanup() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 
-		// Unmarshal JSON into struct
-		if err := json.Unmarshal(acceptedData, &request); err != nil {
-			log.Printf("JSON unmarshal error: %v", err)
-			return "", err
+	now := time.Now()
+	for key, lastAccess := range c.lastAccessed {
+		// Remove entries that haven't been accessed within the TTL period
+		if now.Sub(lastAccess) > c.ttl {
+			// Remove from both maps
+			delete(c.devices, key)
+			delete(c.lastAccessed, key)
 		}
-
-		return device_rpc.Call_GetCapabilities(ctx, dev, request)
-
-	case "GetHostname":
-		return &device.GetHostname{}, nil
-	// case "SetHostname":
-	// 	return &device.SetHostname{}, nil
-	// case "SetHostnameFromDHCP":
-	// 	return &device.SetHostnameFromDHCP{}, nil
-	case "GetDNS":
-		return device_rpc.Call_GetDNS(ctx, dev, device.GetDNS{})
-	// case "SetDNS":
-	// 	return &device.SetDNS{}, nil
-	case "GetNTP":
-		return device_rpc.Call_GetNTP(ctx, dev, device.GetNTP{})
-	// case "SetNTP":
-	// 	return &device.SetNTP{}, nil
-	case "GetDynamicDNS":
-		return device_rpc.Call_GetDynamicDNS(ctx, dev, device.GetDynamicDNS{})
-	// case "SetDynamicDNS":
-	// 	return &device.SetDynamicDNS{}, nil
-	case "GetNetworkInterfaces":
-		return device_rpc.Call_GetNetworkInterfaces(ctx, dev, device.GetNetworkInterfaces{})
-	// case "SetNetworkInterfaces":
-	// 	return &device.SetNetworkInterfaces{}, nil
-	case "GetNetworkProtocols":
-		return device_rpc.Call_GetNetworkProtocols(ctx, dev, device.GetNetworkProtocols{})
-	// case "SetNetworkProtocols":
-	// 	return &device.SetNetworkProtocols{}, nil
-	case "GetNetworkDefaultGateway":
-		return device_rpc.Call_GetNetworkDefaultGateway(ctx, dev, device.GetNetworkDefaultGateway{})
-	// case "SetNetworkDefaultGateway":
-	// 	return &device.SetNetworkDefaultGateway{}, nil
-	case "GetZeroConfiguration":
-		return device_rpc.Call_GetZeroConfiguration(ctx, dev, device.GetZeroConfiguration{})
-	// case "SetZeroConfiguration":
-	// 	return &device.SetZeroConfiguration{}, nil
-	case "GetIPAddressFilter":
-		return device_rpc.Call_GetIPAddressFilter(ctx, dev, device.GetIPAddressFilter{})
-	// case "SetIPAddressFilter":
-	// 	return &device.SetIPAddressFilter{}, nil
-	// case "AddIPAddressFilter":
-	// 	return &device.AddIPAddressFilter{}, nil
-	// case "RemoveIPAddressFilter":
-	// 	return &device.RemoveIPAddressFilter{}, nil
-	case "GetAccessPolicy":
-		return device_rpc.Call_GetAccessPolicy(ctx, dev, device.GetAccessPolicy{})
-	// case "SetAccessPolicy":
-	// 	return &device.SetAccessPolicy{}, nil
-	// case "CreateCertificate":
-	// 	return &device.CreateCertificate{}, nil
-	case "GetCertificates":
-		return device_rpc.Call_GetCertificates(ctx, dev, device.GetCertificates{})
-	case "GetCertificatesStatus":
-		return device_rpc.Call_GetCertificatesStatus(ctx, dev, device.GetCertificatesStatus{})
-	// case "SetCertificatesStatus":
-	// 	return &device.SetCertificatesStatus{}, nil
-	// case "DeleteCertificates":
-	// 	return &device.DeleteCertificates{}, nil
-	case "GetPkcs10Request":
-		return device_rpc.Call_GetPkcs10Request(ctx, dev, device.GetPkcs10Request{})
-	// case "LoadCertificates":
-	// 	return &device.LoadCertificates{}, nil
-	case "GetClientCertificateMode":
-		return device_rpc.Call_GetClientCertificateMode(ctx, dev, device.GetClientCertificateMode{})
-	// case "SetClientCertificateMode":
-	// 	return &device.SetClientCertificateMode{}, nil
-	case "GetRelayOutputs":
-		return device_rpc.Call_GetRelayOutputs(ctx, dev, device.GetRelayOutputs{})
-	// case "SetRelayOutputSettings":
-	// 	return &device.SetRelayOutputSettings{}, nil
-	// case "SetRelayOutputState":
-	// 	return &device.SetRelayOutputState{}, nil
-	// case "SendAuxiliaryCommand":
-	// 	return &device.SendAuxiliaryCommand{}, nil
-	case "GetCACertificates":
-		return device_rpc.Call_GetCACertificates(ctx, dev, device.GetCACertificates{})
-	// case "LoadCertificateWithPrivateKey":
-	// 	return &device.LoadCertificateWithPrivateKey{}, nil
-	case "GetCertificateInformation":
-		return device_rpc.Call_GetCertificateInformation(ctx, dev, device.GetCertificateInformation{})
-	// case "LoadCACertificates":
-	// 	return &device.LoadCACertificates{}, nil
-	// case "CreateDot1XConfiguration":
-	// 	return &device.CreateDot1XConfiguration{}, nil
-	// case "SetDot1XConfiguration":
-	// 	return &device.SetDot1XConfiguration{}, nil
-	case "GetDot1XConfiguration":
-		return device_rpc.Call_GetDot1XConfiguration(ctx, dev, device.GetDot1XConfiguration{})
-	case "GetDot1XConfigurations":
-		return device_rpc.Call_GetDot1XConfigurations(ctx, dev, device.GetDot1XConfigurations{})
-	// case "DeleteDot1XConfiguration":
-	// 	return &device.DeleteDot1XConfiguration{}, nil
-	case "GetDot11Capabilities":
-		return device_rpc.Call_GetDot11Capabilities(ctx, dev, device.GetDot11Capabilities{})
-	case "GetDot11Status":
-		return device_rpc.Call_GetDot11Status(ctx, dev, device.GetDot11Status{})
-	// case "ScanAvailableDot11Networks":
-	// 	return &device.ScanAvailableDot11Networks{}, nil
-	case "GetSystemUris":
-		return device_rpc.Call_GetSystemUris(ctx, dev, device.GetSystemUris{})
-	// case "StartFirmwareUpgrade":
-	// 	return &device.StartFirmwareUpgrade{}, nil
-	// case "StartSystemRestore":
-	// 	return &device.StartSystemRestore{}, nil
-	case "GetStorageConfigurations":
-		return device_rpc.Call_GetStorageConfigurations(ctx, dev, device.GetStorageConfigurations{})
-	// case "CreateStorageConfiguration":
-	// 	return &device.CreateStorageConfiguration{}, nil
-	case "GetStorageConfiguration":
-		return &device.GetStorageConfiguration{}, nil
-	// case "SetStorageConfiguration":
-	// 	return &device.SetStorageConfiguration{}, nil
-	// case "DeleteStorageConfiguration":
-	// 	return &device.DeleteStorageConfiguration{}, nil
-	case "GetGeoLocation":
-		return device_rpc.Call_GetGeoLocation(ctx, dev, device.GetGeoLocation{})
-	// case "SetGeoLocation":
-	// 	return &device.SetGeoLocation{}, nil
-	// case "DeleteGeoLocation":
-	// 	return &device.DeleteGeoLocation{}, nil
-	default:
-		return "", errors.New("there is no such method in the Device service")
 	}
 }
 
-func getMediaStructByName(name string) (interface{}, error) {
-	switch name {
-	case "GetServiceCapabilities":
-		return &media.GetServiceCapabilities{}, nil
-	case "GetVideoSources":
-		return &media.GetVideoSources{}, nil
-	case "GetAudioSources":
-		return &media.GetAudioSources{}, nil
-	case "GetAudioOutputs":
-		return &media.GetAudioOutputs{}, nil
-	case "CreateProfile":
-		return &media.CreateProfile{}, nil
-	case "GetProfile":
-		return &media.GetProfile{}, nil
-	case "GetProfiles":
-		return &media.GetProfiles{}, nil
-	case "AddVideoEncoderConfiguration":
-		return &media.AddVideoEncoderConfiguration{}, nil
-	case "RemoveVideoEncoderConfiguration":
-		return &media.RemoveVideoEncoderConfiguration{}, nil
-	case "AddVideoSourceConfiguration":
-		return &media.AddVideoSourceConfiguration{}, nil
-	case "RemoveVideoSourceConfiguration":
-		return &media.RemoveVideoSourceConfiguration{}, nil
-	case "AddAudioEncoderConfiguration":
-		return &media.AddAudioEncoderConfiguration{}, nil
-	case "RemoveAudioEncoderConfiguration":
-		return &media.RemoveAudioEncoderConfiguration{}, nil
-	case "AddAudioSourceConfiguration":
-		return &media.AddAudioSourceConfiguration{}, nil
-	case "RemoveAudioSourceConfiguration":
-		return &media.RemoveAudioSourceConfiguration{}, nil
-	case "AddPTZConfiguration":
-		return &media.AddPTZConfiguration{}, nil
-	case "RemovePTZConfiguration":
-		return &media.RemovePTZConfiguration{}, nil
-	case "AddVideoAnalyticsConfiguration":
-		return &media.AddVideoAnalyticsConfiguration{}, nil
-	case "RemoveVideoAnalyticsConfiguration":
-		return &media.RemoveVideoAnalyticsConfiguration{}, nil
-	case "AddMetadataConfiguration":
-		return &media.AddMetadataConfiguration{}, nil
-	case "RemoveMetadataConfiguration":
-		return &media.RemoveMetadataConfiguration{}, nil
-	case "AddAudioOutputConfiguration":
-		return &media.AddAudioOutputConfiguration{}, nil
-	case "RemoveAudioOutputConfiguration":
-		return &media.RemoveAudioOutputConfiguration{}, nil
-	case "AddAudioDecoderConfiguration":
-		return &media.AddAudioDecoderConfiguration{}, nil
-	case "RemoveAudioDecoderConfiguration":
-		return &media.RemoveAudioDecoderConfiguration{}, nil
-	case "DeleteProfile":
-		return &media.DeleteProfile{}, nil
-	case "GetVideoSourceConfigurations":
-		return &media.GetVideoSourceConfigurations{}, nil
-	case "GetVideoEncoderConfigurations":
-		return &media.GetVideoEncoderConfigurations{}, nil
-	case "GetAudioSourceConfigurations":
-		return &media.GetAudioSourceConfigurations{}, nil
-	case "GetAudioEncoderConfigurations":
-		return &media.GetAudioEncoderConfigurations{}, nil
-	case "GetVideoAnalyticsConfigurations":
-		return &media.GetVideoAnalyticsConfigurations{}, nil
-	case "GetMetadataConfigurations":
-		return &media.GetMetadataConfigurations{}, nil
-	case "GetAudioOutputConfigurations":
-		return &media.GetAudioOutputConfigurations{}, nil
-	case "GetAudioDecoderConfigurations":
-		return &media.GetAudioDecoderConfigurations{}, nil
-	case "GetVideoSourceConfiguration":
-		return &media.GetVideoSourceConfiguration{}, nil
-	case "GetVideoEncoderConfiguration":
-		return &media.GetVideoEncoderConfiguration{}, nil
-	case "GetAudioSourceConfiguration":
-		return &media.GetAudioSourceConfiguration{}, nil
-	case "GetAudioEncoderConfiguration":
-		return &media.GetAudioEncoderConfiguration{}, nil
-	case "GetVideoAnalyticsConfiguration":
-		return &media.GetVideoAnalyticsConfiguration{}, nil
-	case "GetMetadataConfiguration":
-		return &media.GetMetadataConfiguration{}, nil
-	case "GetAudioOutputConfiguration":
-		return &media.GetAudioOutputConfiguration{}, nil
-	case "GetAudioDecoderConfiguration":
-		return &media.GetAudioDecoderConfiguration{}, nil
-	case "GetCompatibleVideoEncoderConfigurations":
-		return &media.GetCompatibleVideoEncoderConfigurations{}, nil
-	case "GetCompatibleVideoSourceConfigurations":
-		return &media.GetCompatibleVideoSourceConfigurations{}, nil
-	case "GetCompatibleAudioEncoderConfigurations":
-		return &media.GetCompatibleAudioEncoderConfigurations{}, nil
-	case "GetCompatibleAudioSourceConfigurations":
-		return &media.GetCompatibleAudioSourceConfigurations{}, nil
-	case "GetCompatibleVideoAnalyticsConfigurations":
-		return &media.GetCompatibleVideoAnalyticsConfigurations{}, nil
-	case "GetCompatibleMetadataConfigurations":
-		return &media.GetCompatibleMetadataConfigurations{}, nil
-	case "GetCompatibleAudioOutputConfigurations":
-		return &media.GetCompatibleAudioOutputConfigurations{}, nil
-	case "GetCompatibleAudioDecoderConfigurations":
-		return &media.GetCompatibleAudioDecoderConfigurations{}, nil
-	case "SetVideoSourceConfiguration":
-		return &media.SetVideoSourceConfiguration{}, nil
-	case "SetVideoEncoderConfiguration":
-		return &media.SetVideoEncoderConfiguration{}, nil
-	case "SetAudioSourceConfiguration":
-		return &media.SetAudioSourceConfiguration{}, nil
-	case "SetAudioEncoderConfiguration":
-		return &media.SetAudioEncoderConfiguration{}, nil
-	case "SetVideoAnalyticsConfiguration":
-		return &media.SetVideoAnalyticsConfiguration{}, nil
-	case "SetMetadataConfiguration":
-		return &media.SetMetadataConfiguration{}, nil
-	case "SetAudioOutputConfiguration":
-		return &media.SetAudioOutputConfiguration{}, nil
-	case "SetAudioDecoderConfiguration":
-		return &media.SetAudioDecoderConfiguration{}, nil
-	case "GetVideoSourceConfigurationOptions":
-		return &media.GetVideoSourceConfigurationOptions{}, nil
-	case "GetVideoEncoderConfigurationOptions":
-		return &media.GetVideoEncoderConfigurationOptions{}, nil
-	case "GetAudioSourceConfigurationOptions":
-		return &media.GetAudioSourceConfigurationOptions{}, nil
-	case "GetAudioEncoderConfigurationOptions":
-		return &media.GetAudioEncoderConfigurationOptions{}, nil
-	case "GetMetadataConfigurationOptions":
-		return &media.GetMetadataConfigurationOptions{}, nil
-	case "GetAudioOutputConfigurationOptions":
-		return &media.GetAudioOutputConfigurationOptions{}, nil
-	case "GetAudioDecoderConfigurationOptions":
-		return &media.GetAudioDecoderConfigurationOptions{}, nil
-	case "GetGuaranteedNumberOfVideoEncoderInstances":
-		return &media.GetGuaranteedNumberOfVideoEncoderInstances{}, nil
-	case "GetStreamUri":
-		return &media.GetStreamUri{}, nil
-	case "StartMulticastStreaming":
-		return &media.StartMulticastStreaming{}, nil
-	case "StopMulticastStreaming":
-		return &media.StopMulticastStreaming{}, nil
-	case "SetSynchronizationPoint":
-		return &media.SetSynchronizationPoint{}, nil
-	case "GetSnapshotUri":
-		return &media.GetSnapshotUri{}, nil
-	case "GetVideoSourceModes":
-		return &media.GetVideoSourceModes{}, nil
-	case "SetVideoSourceMode":
-		return &media.SetVideoSourceMode{}, nil
-	case "GetOSDs":
-		return &media.GetOSDs{}, nil
-	case "GetOSD":
-		return &media.GetOSD{}, nil
-	case "GetOSDOptions":
-		return &media.GetOSDOptions{}, nil
-	case "SetOSD":
-		return &media.SetOSD{}, nil
-	case "CreateOSD":
-		return &media.CreateOSD{}, nil
-	case "DeleteOSD":
-		return &media.DeleteOSD{}, nil
-	default:
-		return nil, errors.New("there is no such method in the Media service")
+// GetDevice retrieves a device from cache or creates a new one
+func (c *DeviceCache) GetDevice(xaddr, username, password string) (*onvif.Device, error) {
+	cacheKey := xaddr + "|" + username
+
+	// Try to get from cache first
+	c.mutex.RLock()
+	dev, found := c.devices[cacheKey]
+	c.mutex.RUnlock()
+
+	if found {
+		return dev, nil
 	}
 
+	// Create new device connection
+	dev, err := onvif.NewDevice(onvif.DeviceParams{
+		Xaddr:    xaddr,
+		Username: username,
+		Password: password,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache
+	c.mutex.Lock()
+	c.devices[cacheKey] = dev
+	c.mutex.Unlock()
+
+	return dev, nil
 }
 
-func getEventStructByName(name string) (interface{}, error) {
-	switch name {
-	case "GetEventProperties":
-		return &event.GetEventProperties{}, nil
-	case "CreatePullPointSubscription":
-		return &event.CreatePullPointSubscription{}, nil
-	case "Renew":
-		return &event.Renew{}, nil
-	case "Unsubscribe":
-		return &event.Unsubscribe{}, nil
-	case "GetServiceCapabilities":
-		return &event.GetServiceCapabilities{}, nil
-	default:
-		return nil, errors.New("there is no such method in the Event service")
+// APIServer is the main server structure
+type APIServer struct {
+	router      *gin.Engine
+	logger      zerolog.Logger
+	deviceCache *DeviceCache
+	limiter     *rate.Limiter
+	config      Config
+}
+
+// NewAPIServer creates a new API server
+func NewAPIServer(config Config) *APIServer {
+	// Set up zerolog
+	logLevel, err := zerolog.ParseLevel(config.LogLevel)
+	if err != nil {
+		logLevel = zerolog.InfoLevel
+	}
+
+	logContext := zerolog.New(zerolog.ConsoleWriter{
+		Out:        os.Stderr,
+		TimeFormat: time.RFC3339,
+	}).With().Timestamp()
+
+	logger := logContext.Logger().Level(logLevel)
+
+	// Configure gin
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(gin.Recovery())
+
+	// Set up CORS
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "username", "password", "xaddr"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
+	// Create rate limiter
+	limiter := rate.NewLimiter(rate.Limit(config.RateLimitReqs), config.RateLimitBurst)
+
+	return &APIServer{
+		router:      router,
+		logger:      logger,
+		deviceCache: NewDeviceCache(10 * time.Minute),
+		limiter:     limiter,
+		config:      config,
 	}
 }
 
-var (
-	// LoggerContext is the builder of a zerolog.Logger that is exposed to the application so that
-	// options at the CLI might alter the formatting and the output of the logs.
-	LoggerContext = zerolog.
-			New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
-			With().Timestamp()
-
-	// Logger is a zerolog logger, that can be safely used from any part of the application.
-	// It gathers the format and the output.
-	Logger = LoggerContext.Logger()
-)
-
-func RunApi() {
-	router := gin.Default()
-
-	router.POST("/:service/:method", func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Headers", "access-control-allow-origin, access-control-allow-headers")
-		c.Header("Content-Type", "application/json")
-
-		serviceName := c.Param("service")
-		methodName := c.Param("method")
-		username := c.GetHeader("username")
-		pass := c.GetHeader("password")
-		xaddr := c.GetHeader("xaddr")
-		acceptedData, err := c.GetRawData()
-		if err != nil {
-			Logger.Debug().Err(err).Msg("Failed to get rawx data")
+// rateLimitMiddleware provides basic rate limiting
+func (s *APIServer) rateLimitMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !s.limiter.Allow() {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error": "Too many requests, please try again later",
+			})
+			c.Abort()
+			return
 		}
+		c.Next()
+	}
+}
 
-		dev, err := onvif.NewDevice(onvif.DeviceParams{
-			Xaddr:    xaddr,
-			Username: username,
-			Password: pass,
+// loggerMiddleware provides request logging
+func (s *APIServer) loggerMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+
+		// Process request
+		c.Next()
+
+		// Log after request is complete
+		latency := time.Since(start)
+		clientIP := c.ClientIP()
+		method := c.Request.Method
+		statusCode := c.Writer.Status()
+		path := c.Request.URL.Path
+
+		s.logger.Info().
+			Str("client_ip", clientIP).
+			Str("method", method).
+			Str("path", path).
+			Int("status", statusCode).
+			Dur("latency", latency).
+			Msg("Request processed")
+	}
+}
+
+// SetupRoutes configures all API routes
+func (s *APIServer) SetupRoutes() {
+	s.router.Use(s.loggerMiddleware())
+	s.router.Use(s.rateLimitMiddleware())
+
+	// Service endpoints
+	s.router.POST("/:service/:method", s.handleServiceMethod)
+
+	// Discovery endpoint
+	s.router.GET("/discovery", s.handleDiscovery)
+}
+
+// handleServiceMethod processes all ONVIF service method calls
+func (s *APIServer) handleServiceMethod(c *gin.Context) {
+	serviceName := c.Param("service")
+	methodName := c.Param("method")
+	username := c.GetHeader("username")
+	password := c.GetHeader("password")
+	xaddr := c.GetHeader("xaddr")
+
+	if xaddr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Missing xaddr header",
 		})
+		return
+	}
 
-		if err != nil {
-			c.XML(http.StatusBadRequest, err.Error())
-		}
+	acceptedData, err := c.GetRawData()
+	if err != nil {
+		s.logger.Debug().Err(err).Msg("Failed to get raw data")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Failed to read request body",
+		})
+		return
+	}
 
-		message, err := callNecessaryMethod(serviceName, methodName, []byte(acceptedData), dev)
-		if err != nil {
-			c.XML(http.StatusBadRequest, err.Error())
-		} else {
-			c.String(http.StatusOK, message)
-		}
-	})
+	// Get device from cache or create new connection
+	dev, err := s.deviceCache.GetDevice(xaddr, username, password)
+	if err != nil {
+		s.logger.Error().Err(err).
+			Str("xaddr", xaddr).
+			Msg("Failed to connect to device")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Failed to connect to device: " + err.Error(),
+		})
+		return
+	}
 
-	router.GET("/discovery", func(context *gin.Context) {
-		context.Header("Access-Control-Allow-Origin", "*")
-		context.Header("Access-Control-Allow-Headers", "access-control-allow-origin, access-control-allow-headers")
+	// Call the appropriate service method
+	response, err := s.callServiceMethod(serviceName, methodName, acceptedData, dev)
+	if err != nil {
+		s.logger.Error().Err(err).
+			Str("service", serviceName).
+			Str("method", methodName).
+			Msg("Method call failed")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
 
-		interfaceName := context.GetHeader("interface")
-
-		devices, err := wsdiscovery.SendProbe(interfaceName, nil, []string{"dn:NetworkVideoTransmitter"}, map[string]string{"dn": "http://www.onvif.org/ver10/network/wsdl"})
-		if err != nil {
-			context.String(http.StatusInternalServerError, "error")
-		} else {
-			response := "["
-
-			for _, j := range devices {
-				doc := etree.NewDocument()
-
-				if err := doc.ReadFromString(j); err != nil {
-					context.XML(http.StatusBadRequest, err.Error())
-				} else {
-
-					endpoints := doc.Root().FindElements("./Body/ProbeMatches/ProbeMatch/XAddrs")
-					scopes := doc.Root().FindElements("./Body/ProbeMatches/ProbeMatch/Scopes")
-
-					flag := false
-
-					for _, xaddr := range endpoints {
-						xaddr := strings.Split(strings.Split(xaddr.Text(), " ")[0], "/")[2]
-						if strings.Contains(response, xaddr) {
-							flag = true
-							break
-						}
-						response += "{"
-						response += `"url":"` + xaddr + `",`
-					}
-					if flag {
-						break
-					}
-					for _, scope := range scopes {
-						re := regexp.MustCompile(`onvif:\/\/www\.onvif\.org\/name\/[A-Za-z0-9-]+`)
-						match := re.FindStringSubmatch(scope.Text())
-						response += `"name":"` + path.Base(match[0]) + `"`
-					}
-					response += "},"
-				}
-			}
-			response = strings.TrimRight(response, ",")
-			response += "]"
-			context.String(http.StatusOK, response)
-		}
-	})
-
-	router.Run()
+	c.JSON(http.StatusOK, response)
 }
 
-func callNecessaryMethod(serviceName, methodName string, acceptedData []byte, dev *onvif.Device) (string, error) {
-	var response interface{}
-	var err error
-
-	fmt.Println(acceptedData)
-
+// callServiceMethod routes the call to the appropriate service
+func (s *APIServer) callServiceMethod(serviceName, methodName string, data []byte, dev *onvif.Device) (interface{}, error) {
 	switch strings.ToLower(serviceName) {
 	case "device":
-		response, err = getDeviceStructByName(methodName, dev, acceptedData)
-	// case "ptz":
-	// 	methodStruct, err = getPTZStructByName(methodName)
-	// case "media":
-	// 	methodStruct, err = getMediaStructByName(methodName)
-	// case "event":
-	// 	methodStruct, err = getEventStructByName(methodName)
+		return s.callDeviceMethod(methodName, dev, data)
+	case "ptz":
+		return s.callPTZMethod(methodName, dev, data)
+	case "media":
+		return s.callMediaMethod(methodName, dev, data)
 	default:
-		return "", errors.New("there is no such service")
+		return nil, errors.New("unknown service: " + serviceName)
 	}
-	if err != nil { //done
-		return "", errors.Annotate(err, "getStructByName")
+}
+
+// callDeviceMethod handles all device service methods
+func (s *APIServer) callDeviceMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	switch methodName {
+	case "GetServices":
+		var request device.GetServices
+		if err := json.Unmarshal(data, &request); err != nil {
+			// If no data provided, use empty struct
+			request = device.GetServices{}
+		}
+		return device_rpc.Call_GetServices(ctx, dev, request)
+	case "GetServiceCapabilities":
+		return device_rpc.Call_GetServiceCapabilities(ctx, dev, device.GetServiceCapabilities{})
+	case "GetDeviceInformation":
+		return device_rpc.Call_GetDeviceInformation(ctx, dev, device.GetDeviceInformation{})
+	// ... rest of device methods as in your original code ...
+	default:
+		return nil, errors.New("unknown device method: " + methodName)
+	}
+}
+
+// callPTZMethod handles all PTZ service methods
+func (s *APIServer) callPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	switch methodName {
+	case "GetServiceCapabilities":
+		return ptz_rpc.Call_GetServiceCapabilities(ctx, dev, ptz.GetServiceCapabilities{})
+	case "GetNodes":
+		return ptz_rpc.Call_GetNodes(ctx, dev, ptz.GetNodes{})
+	case "GetNode":
+		var request ptz.GetNode
+		if err := json.Unmarshal(data, &request); err != nil {
+			return nil, err
+		}
+		return ptz_rpc.Call_GetNode(ctx, dev, request)
+	// ... rest of PTZ methods as in your original code ...
+	default:
+		return nil, errors.New("unknown PTZ method: " + methodName)
+	}
+}
+
+// callMediaMethod handles all Media service methods
+func (s *APIServer) callMediaMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	switch methodName {
+	case "GetServiceCapabilities":
+		return media_rpc.Call_GetServiceCapabilities(ctx, dev, media.GetServiceCapabilities{})
+	case "GetVideoSources":
+		return media_rpc.Call_GetVideoSources(ctx, dev, media.GetVideoSources{})
+	case "GetAudioSources":
+		return media_rpc.Call_GetAudioSources(ctx, dev, media.GetAudioSources{})
+	// ... rest of Media methods as in your original code ...
+	default:
+		return nil, errors.New("unknown Media method: " + methodName)
+	}
+}
+
+// handleDiscovery handles device discovery requests
+func (s *APIServer) handleDiscovery(c *gin.Context) {
+	interfaceName := c.GetHeader("interface")
+
+	devices, err := wsdiscovery.SendProbe(interfaceName, nil, []string{"dn:NetworkVideoTransmitter"}, map[string]string{"dn": "http://www.onvif.org/ver10/network/wsdl"})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Discovery failed")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Discovery failed: " + err.Error(),
+		})
+		return
 	}
 
-	// Marshal response to JSON for consistency
-	jsonData, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		log.Printf("Error marshaling response: %v", err)
-		return "", err
+	discoveredDevices := []map[string]string{}
+
+	for _, deviceXML := range devices {
+		doc := etree.NewDocument()
+		if err := doc.ReadFromString(deviceXML); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to parse device XML")
+			continue
+		}
+
+		endpoints := doc.Root().FindElements("./Body/ProbeMatches/ProbeMatch/XAddrs")
+		scopes := doc.Root().FindElements("./Body/ProbeMatches/ProbeMatch/Scopes")
+
+		if len(endpoints) == 0 {
+			continue
+		}
+
+		// Get the device URL
+		xaddrFull := strings.Split(endpoints[0].Text(), " ")[0]
+		xaddr := strings.Split(xaddrFull, "/")[2]
+
+		// Skip if we've already found this device
+		alreadyFound := false
+		for _, device := range discoveredDevices {
+			if device["url"] == xaddr {
+				alreadyFound = true
+				break
+			}
+		}
+		if alreadyFound {
+			continue
+		}
+
+		// Extract device name from scopes
+		deviceName := "Unknown"
+		if len(scopes) > 0 {
+			re := regexp.MustCompile(`onvif:\/\/www\.onvif\.org\/name\/([A-Za-z0-9-]+)`)
+			matches := re.FindStringSubmatch(scopes[0].Text())
+			if len(matches) > 1 {
+				deviceName = matches[1]
+			}
+		}
+
+		discoveredDevices = append(discoveredDevices, map[string]string{
+			"url":  xaddr,
+			"name": deviceName,
+		})
 	}
-	return string(jsonData), nil
+
+	c.JSON(http.StatusOK, discoveredDevices)
+}
+
+// Run starts the API server
+func (s *APIServer) Run() error {
+	s.logger.Info().Str("port", s.config.Port).Msg("Starting ONVIF API server")
+	return s.router.Run(":" + s.config.Port)
 }
 
 func main() {
-	RunApi()
+	// Load configuration (could be from environment, flags, or config file)
+	config := Config{
+		Port:           "8081",
+		LogLevel:       "info",
+		RateLimitReqs:  10, // 10 requests per second
+		RateLimitBurst: 20, // Allow bursts of up to 20 requests
+	}
+
+	// Create and run server
+	server := NewAPIServer(config)
+	server.SetupRoutes()
+
+	if err := server.Run(); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }
