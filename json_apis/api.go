@@ -1,29 +1,21 @@
-package main
+package api
 
 import (
-	"context"
-	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
+
+	"go-onvif/json_apis/utils"
+	"go-onvif/onvif"
+	wsdiscovery "go-onvif/ws-discovery"
 
 	"github.com/beevik/etree"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/juju/errors"
 	"github.com/rs/zerolog"
-	"github.com/use-go/onvif"
-	"github.com/use-go/onvif/device"
-	"github.com/use-go/onvif/media"
-	"github.com/use-go/onvif/ptz"
-	device_rpc "github.com/use-go/onvif/sdk/device"
-	media_rpc "github.com/use-go/onvif/sdk/media"
-	ptz_rpc "github.com/use-go/onvif/sdk/ptz"
-	wsdiscovery "github.com/use-go/onvif/ws-discovery"
 	"golang.org/x/time/rate"
 )
 
@@ -35,88 +27,11 @@ type Config struct {
 	RateLimitBurst int
 }
 
-// DeviceCache provides caching for ONVIF devices to avoid repeated connections
-type DeviceCache struct {
-	devices      map[string]*onvif.Device
-	lastAccessed map[string]time.Time
-	mutex        sync.RWMutex
-	ttl          time.Duration
-}
-
-// NewDeviceCache creates a new device cache with the specified TTL
-func NewDeviceCache(ttl time.Duration) *DeviceCache {
-	cache := &DeviceCache{
-		devices: make(map[string]*onvif.Device),
-		ttl:     ttl,
-	}
-	// Start a goroutine to clean up expired cache entries
-	go cache.startCleanup()
-	return cache
-}
-
-// startCleanup periodically removes old cache entries
-func (c *DeviceCache) startCleanup() {
-	ticker := time.NewTicker(c.ttl / 2)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		c.cleanup()
-	}
-}
-
-// cleanup removes expired devices
-func (c *DeviceCache) cleanup() {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	now := time.Now()
-	for key, lastAccess := range c.lastAccessed {
-		// Remove entries that haven't been accessed within the TTL period
-		if now.Sub(lastAccess) > c.ttl {
-			// Remove from both maps
-			delete(c.devices, key)
-			delete(c.lastAccessed, key)
-		}
-	}
-}
-
-// GetDevice retrieves a device from cache or creates a new one
-func (c *DeviceCache) GetDevice(xaddr, username, password string) (*onvif.Device, error) {
-	cacheKey := xaddr + "|" + username
-
-	// Try to get from cache first
-	c.mutex.RLock()
-	dev, found := c.devices[cacheKey]
-	c.mutex.RUnlock()
-
-	if found {
-		return dev, nil
-	}
-
-	// Create new device connection
-	dev, err := onvif.NewDevice(onvif.DeviceParams{
-		Xaddr:    xaddr,
-		Username: username,
-		Password: password,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Store in cache
-	c.mutex.Lock()
-	c.devices[cacheKey] = dev
-	c.mutex.Unlock()
-
-	return dev, nil
-}
-
 // APIServer is the main server structure
 type APIServer struct {
 	router      *gin.Engine
 	logger      zerolog.Logger
-	deviceCache *DeviceCache
+	deviceCache *utils.DeviceCache
 	limiter     *rate.Limiter
 	config      Config
 }
@@ -157,7 +72,7 @@ func NewAPIServer(config Config) *APIServer {
 	return &APIServer{
 		router:      router,
 		logger:      logger,
-		deviceCache: NewDeviceCache(10 * time.Minute),
+		deviceCache: utils.NewDeviceCache(10 * time.Minute),
 		limiter:     limiter,
 		config:      config,
 	}
@@ -270,76 +185,13 @@ func (s *APIServer) handleServiceMethod(c *gin.Context) {
 func (s *APIServer) callServiceMethod(serviceName, methodName string, data []byte, dev *onvif.Device) (interface{}, error) {
 	switch strings.ToLower(serviceName) {
 	case "device":
-		return s.callDeviceMethod(methodName, dev, data)
+		return callDeviceMethod(methodName, dev, data)
 	case "ptz":
-		return s.callPTZMethod(methodName, dev, data)
+		return callPTZMethod(methodName, dev, data)
 	case "media":
-		return s.callMediaMethod(methodName, dev, data)
+		return callMediaMethod(methodName, dev, data)
 	default:
 		return nil, errors.New("unknown service: " + serviceName)
-	}
-}
-
-// callDeviceMethod handles all device service methods
-func (s *APIServer) callDeviceMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	switch methodName {
-	case "GetServices":
-		var request device.GetServices
-		if err := json.Unmarshal(data, &request); err != nil {
-			// If no data provided, use empty struct
-			request = device.GetServices{}
-		}
-		return device_rpc.Call_GetServices(ctx, dev, request)
-	case "GetServiceCapabilities":
-		return device_rpc.Call_GetServiceCapabilities(ctx, dev, device.GetServiceCapabilities{})
-	case "GetDeviceInformation":
-		return device_rpc.Call_GetDeviceInformation(ctx, dev, device.GetDeviceInformation{})
-	// ... rest of device methods as in your original code ...
-	default:
-		return nil, errors.New("unknown device method: " + methodName)
-	}
-}
-
-// callPTZMethod handles all PTZ service methods
-func (s *APIServer) callPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	switch methodName {
-	case "GetServiceCapabilities":
-		return ptz_rpc.Call_GetServiceCapabilities(ctx, dev, ptz.GetServiceCapabilities{})
-	case "GetNodes":
-		return ptz_rpc.Call_GetNodes(ctx, dev, ptz.GetNodes{})
-	case "GetNode":
-		var request ptz.GetNode
-		if err := json.Unmarshal(data, &request); err != nil {
-			return nil, err
-		}
-		return ptz_rpc.Call_GetNode(ctx, dev, request)
-	// ... rest of PTZ methods as in your original code ...
-	default:
-		return nil, errors.New("unknown PTZ method: " + methodName)
-	}
-}
-
-// callMediaMethod handles all Media service methods
-func (s *APIServer) callMediaMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	switch methodName {
-	case "GetServiceCapabilities":
-		return media_rpc.Call_GetServiceCapabilities(ctx, dev, media.GetServiceCapabilities{})
-	case "GetVideoSources":
-		return media_rpc.Call_GetVideoSources(ctx, dev, media.GetVideoSources{})
-	case "GetAudioSources":
-		return media_rpc.Call_GetAudioSources(ctx, dev, media.GetAudioSources{})
-	// ... rest of Media methods as in your original code ...
-	default:
-		return nil, errors.New("unknown Media method: " + methodName)
 	}
 }
 
@@ -411,22 +263,4 @@ func (s *APIServer) handleDiscovery(c *gin.Context) {
 func (s *APIServer) Run() error {
 	s.logger.Info().Str("port", s.config.Port).Msg("Starting ONVIF API server")
 	return s.router.Run(":" + s.config.Port)
-}
-
-func main() {
-	// Load configuration (could be from environment, flags, or config file)
-	config := Config{
-		Port:           "8081",
-		LogLevel:       "info",
-		RateLimitReqs:  10, // 10 requests per second
-		RateLimitBurst: 20, // Allow bursts of up to 20 requests
-	}
-
-	// Create and run server
-	server := NewAPIServer(config)
-	server.SetupRoutes()
-
-	if err := server.Run(); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
 }

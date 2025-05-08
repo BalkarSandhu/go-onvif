@@ -1,7 +1,7 @@
 package onvif
 
 import (
-	"github.com/use-go/onvif/xsd"
+	"go-onvif/xsd"
 )
 
 // BUG(r): Enum types implemented as simple string
@@ -1624,9 +1624,9 @@ type IPv4NetworkInterfaceSetConfiguration struct {
 }
 
 type NetworkProtocol struct {
-	Name      NetworkProtocolType      `xml:"onvif:Name"`
-	Enabled   xsd.Boolean              `xml:"onvif:Enabled"`
-	Port      xsd.Int                  `xml:"onvif:Port"`
+	Name    NetworkProtocolType `xml:"onvif:Name"`
+	Enabled xsd.Boolean         `xml:"onvif:Enabled"`
+	Port    xsd.Int             `xml:"onvif:Port"`
 }
 
 type NetworkProtocolExtension xsd.AnyType
