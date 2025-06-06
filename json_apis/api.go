@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"go-onvif/json_apis/utils"
@@ -52,7 +53,7 @@ func NewAPIServer(config Config) *APIServer {
 	logger := logContext.Logger().Level(logLevel)
 
 	// Configure gin
-	gin.SetMode(gin.ReleaseMode)
+	gin.SetMode(gin.DebugMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
 
@@ -127,6 +128,9 @@ func (s *APIServer) SetupRoutes() {
 
 	// Discovery endpoint
 	s.router.GET("/discovery", s.handleDiscovery)
+
+	//Scan IP range
+	s.router.GET("/scan", s.handleDeviceScan)
 }
 
 // handleServiceMethod processes all ONVIF service method calls
@@ -257,6 +261,47 @@ func (s *APIServer) handleDiscovery(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, discoveredDevices)
+}
+
+func (s *APIServer) handleDeviceScan(c *gin.Context) {
+	startIP := c.Query("start")
+	endIP := c.Query("end")
+
+	if startIP == "" || endIP == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing start or end IP"})
+		return
+	}
+
+	ips, err := utils.GenerateIPRange(startIP, endIP)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Invalid IP range")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid IP range: " + err.Error()})
+		return
+	}
+
+	type result struct {
+		IP    string `json:"ip"`
+		Alive bool   `json:"alive"`
+	}
+
+	results := []result{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, ip := range ips {
+		wg.Add(1)
+		go func(ip string) {
+			defer wg.Done()
+			if utils.IsONVIFDevice(ip) {
+				mu.Lock()
+				results = append(results, result{IP: ip, Alive: true})
+				mu.Unlock()
+			}
+		}(ip)
+	}
+
+	wg.Wait()
+	c.JSON(http.StatusOK, results)
 }
 
 // Run starts the API server
