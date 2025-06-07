@@ -1,9 +1,11 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/beevik/etree"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"github.com/juju/errors"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
@@ -35,6 +38,34 @@ type APIServer struct {
 	deviceCache *utils.DeviceCache
 	limiter     *rate.Limiter
 	config      Config
+}
+
+func LoadConfig() Config {
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("No .env file found, reading environment variables directly...")
+	}
+
+	getEnv := func(key, fallback string) string {
+		if val := os.Getenv(key); val != "" {
+			return val
+		}
+		return fallback
+	}
+
+	toInt := func(val string, fallback int) int {
+		if i, err := strconv.Atoi(val); err == nil {
+			return i
+		}
+		return fallback
+	}
+
+	return Config{
+		Port:           getEnv("PORT", "8084"),
+		LogLevel:       getEnv("LOG_LEVEL", "info"),
+		RateLimitReqs:  toInt(getEnv("RATE_LIMIT_REQS", "10"), 10),
+		RateLimitBurst: toInt(getEnv("RATE_LIMIT_BURST", "20"), 20),
+	}
 }
 
 // NewAPIServer creates a new API server
@@ -201,7 +232,7 @@ func (s *APIServer) callServiceMethod(serviceName, methodName string, data []byt
 
 // handleDiscovery handles device discovery requests
 func (s *APIServer) handleDiscovery(c *gin.Context) {
-	interfaceName := c.GetHeader("interface")
+	interfaceName := c.Query("interface")
 
 	devices, err := wsdiscovery.SendProbe(interfaceName, nil, []string{"dn:NetworkVideoTransmitter"}, map[string]string{"dn": "http://www.onvif.org/ver10/network/wsdl"})
 	if err != nil {

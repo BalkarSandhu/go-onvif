@@ -6,13 +6,8 @@ import (
 )
 
 func main() {
-	// Load configuration (could be from environment, flags, or config file)
-	config := api.Config{
-		Port:           "8084",
-		LogLevel:       "info",
-		RateLimitReqs:  10, // 10 requests per second
-		RateLimitBurst: 20, // Allow bursts of up to 20 requests
-	}
+	// Load configuration
+	config := api.LoadConfig()
 
 	// Create and run server
 	server := api.NewAPIServer(config)
