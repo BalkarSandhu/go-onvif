@@ -36,5 +36,6 @@
     "cSpell.words": [
         "wsdiscovery"
     ],
-    "peacock.color": "#215732"
+    "peacock.color": "#215732",
+    "liveServer.settings.port": 5501
 }

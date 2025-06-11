@@ -1,4 +1,4 @@
-package api
+package utils
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 )
 
 
-func callDeviceMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
+func CallDeviceMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -517,7 +517,7 @@ func callDeviceMethod(methodName string, dev *onvif.Device, data []byte) (interf
 }
 
 
-func callPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
+func CallPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -713,7 +713,7 @@ func callPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface
 
 // callMediaMethod routes a Media service method name to the corresponding RPC
 // call. If the RPC needs a request payload, it is unmarshalled from `data`.
-func callMediaMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
+func CallMediaMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

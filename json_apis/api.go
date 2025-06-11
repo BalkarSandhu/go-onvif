@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"go-onvif/json_apis/utils"
@@ -38,6 +37,29 @@ type APIServer struct {
 	deviceCache *utils.DeviceCache
 	limiter     *rate.Limiter
 	config      Config
+}
+
+const (
+	scanTimeout = 10 * time.Second
+)
+
+type DeviceScanResult struct {
+	IP              string `json:"ip"`
+	Alive           bool   `json:"alive"`
+	Manufacturer    string `json:"manufacturer,omitempty"`
+	Model           string `json:"model,omitempty"`
+	FirmwareVersion string `json:"firmware_version,omitempty"`
+	SerialNumber    string `json:"serial_number,omitempty"`
+	HardwareID      string `json:"hardware_id,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
+type ScanRequest struct {
+	StartIP  string `form:"start" binding:"required"`
+	EndIP    string `form:"end" binding:"required"`
+	Username string `form:"username"`
+	Password string `form:"password"`
+	Timeout  int    `form:"timeout"`
 }
 
 func LoadConfig() Config {
@@ -201,7 +223,7 @@ func (s *APIServer) handleServiceMethod(c *gin.Context) {
 	}
 
 	// Call the appropriate service method
-	response, err := s.callServiceMethod(serviceName, methodName, acceptedData, dev)
+	response, err := s.CallServiceMethod(serviceName, methodName, acceptedData, dev)
 	if err != nil {
 		s.logger.Error().Err(err).
 			Str("service", serviceName).
@@ -217,14 +239,14 @@ func (s *APIServer) handleServiceMethod(c *gin.Context) {
 }
 
 // callServiceMethod routes the call to the appropriate service
-func (s *APIServer) callServiceMethod(serviceName, methodName string, data []byte, dev *onvif.Device) (interface{}, error) {
+func (s *APIServer) CallServiceMethod(serviceName, methodName string, data []byte, dev *onvif.Device) (interface{}, error) {
 	switch strings.ToLower(serviceName) {
 	case "device":
-		return callDeviceMethod(methodName, dev, data)
+		return utils.CallDeviceMethod(methodName, dev, data)
 	case "ptz":
-		return callPTZMethod(methodName, dev, data)
+		return utils.CallPTZMethod(methodName, dev, data)
 	case "media":
-		return callMediaMethod(methodName, dev, data)
+		return utils.CallPTZMethod(methodName, dev, data)
 	default:
 		return nil, errors.New("unknown service: " + serviceName)
 	}
@@ -295,44 +317,74 @@ func (s *APIServer) handleDiscovery(c *gin.Context) {
 }
 
 func (s *APIServer) handleDeviceScan(c *gin.Context) {
-	startIP := c.Query("start")
-	endIP := c.Query("end")
-
-	if startIP == "" || endIP == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing start or end IP"})
+	var req utils.ScanRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		s.logger.Error().Err(err).Msg("Invalid scan request parameters")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request parameters: " + err.Error(),
+		})
 		return
 	}
 
-	ips, err := utils.GenerateIPRange(startIP, endIP)
+	// Use default timeout if not set
+	if req.Timeout == 0 {
+		req.Timeout = int(scanTimeout.Seconds()) // assumes scanTimeout is a predefined `time.Duration`
+	}
+	scanTimeoutDuration := time.Duration(req.Timeout) * time.Second
+
+	// Generate list of IPs to scan
+	ips, err := utils.GenerateIPRange(req.StartIP, req.EndIP)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Invalid IP range")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid IP range: " + err.Error()})
+		s.logger.Error().Err(err).Msg("Failed to generate IP range")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid IP range: " + err.Error(),
+		})
 		return
 	}
 
-	type result struct {
-		IP    string `json:"ip"`
-		Alive bool   `json:"alive"`
+	if len(ips) > 1000 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "IP range too large (max 1000 addresses)",
+		})
+		return
 	}
 
-	results := []result{}
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	for _, ip := range ips {
-		wg.Add(1)
-		go func(ip string) {
-			defer wg.Done()
-			if utils.IsONVIFDevice(ip) {
-				mu.Lock()
-				results = append(results, result{IP: ip, Alive: true})
-				mu.Unlock()
-			}
-		}(ip)
+	// Get body data if required for auth headers, etc.
+	acceptedData, err := c.GetRawData()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to read raw request body")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to process request data",
+		})
+		return
 	}
 
-	wg.Wait()
-	c.JSON(http.StatusOK, results)
+	s.logger.Info().
+		Str("start_ip", req.StartIP).
+		Str("end_ip", req.EndIP).
+		Int("ip_count", len(ips)).
+		Bool("with_auth", req.Username != "").
+		Dur("timeout", scanTimeoutDuration).
+		Msg("Starting ONVIF device scan")
+
+	// Perform scan
+	var scanResult utils.DeviceScanResult
+	results := scanResult.PerformDeviceScan(ips, req, acceptedData, scanTimeoutDuration)
+	aliveCount := utils.CountAliveDevices(results)
+
+	s.logger.Info().
+		Int("total_scanned", len(results)).
+		Int("alive_devices", aliveCount).
+		Msg("ONVIF device scan completed")
+
+	// Return results
+	c.JSON(http.StatusOK, gin.H{
+		"results": results,
+		"summary": gin.H{
+			"total_scanned": len(results),
+			"alive_devices": aliveCount,
+		},
+	})
 }
 
 // Run starts the API server
