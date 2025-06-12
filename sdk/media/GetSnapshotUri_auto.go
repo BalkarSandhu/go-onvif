@@ -6,7 +6,6 @@ package media
 
 import (
 	"context"
-	"fmt"
 	"go-onvif/media"
 	"go-onvif/onvif"
 	"go-onvif/sdk"
@@ -24,12 +23,9 @@ func Call_GetSnapshotUri(ctx context.Context, dev *onvif.Device, request media.G
 	}
 	var reply Envelope
 	httpReply, err := dev.CallMethod(request);
-	fmt.Println(httpReply, err)
 	if err != nil {
-		fmt.Println(err)
 		return reply.Body.GetSnapshotUriResponse, errors.Annotate(err, "call")
 	} else {
-		fmt.Println(httpReply)
 		err = sdk.ReadAndParse(ctx, httpReply, &reply, "GetSnapshotUri")
 		return reply.Body.GetSnapshotUriResponse, errors.Annotate(err, "reply")
 	}

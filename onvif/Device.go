@@ -20,7 +20,7 @@ import (
 
 // Xlmns XML Scheam
 var Xlmns = map[string]string{
-	"onvif":   "http://www.onvif.org/ver10/schema",
+	"tt":      "http://www.onvif.org/ver10/schema",
 	"tds":     "http://www.onvif.org/ver10/device/wsdl",
 	"trt":     "http://www.onvif.org/ver10/media/wsdl",
 	"tev":     "http://www.onvif.org/ver10/events/wsdl",
@@ -265,8 +265,40 @@ func (dev Device) CallMethod(method interface{}) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	return dev.callMethodDo(endpoint, method)
+	resp, err := dev.callMethodDo(endpoint, method)
+	return resp, err
 }
+
+// func (dev Device) CallMethod(method interface{}) (*http.Response, error) {
+// 	pkgPath := strings.Split(reflect.TypeOf(method).PkgPath(), "/")
+// 	pkg := strings.ToLower(pkgPath[len(pkgPath)-1])
+
+// 	endpoint, err := dev.getEndpoint(pkg)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	resp, err := dev.callMethodDo(endpoint, method)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Read the full response body
+// 	defer resp.Body.Close()
+// 	bodyBytes, err := io.ReadAll(resp.Body)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Print the SOAP response as string
+// 	fmt.Println("SOAP Response:")
+// 	fmt.Println(string(bodyBytes))
+
+// 	// Re-wrap body so it can still be read by caller
+// 	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+// 	return resp, nil
+// }
 
 // CallMethod functions call an method, defined <method> struct with authentication data
 func (dev Device) callMethodDo(endpoint string, method interface{}) (*http.Response, error) {

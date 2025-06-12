@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go-onvif/device"
+	"go-onvif/json_apis/cache"
 	"go-onvif/onvif"
 	"net/http"
 	"sync"
@@ -16,13 +17,7 @@ const (
 	onvifPort          = 80
 )
 
-// DeviceCache caches ONVIF devices to avoid repeated connections
-type DeviceCache struct {
-	devices      map[string]*onvif.Device
-	lastAccessed map[string]time.Time
-	mutex        sync.RWMutex
-	ttl          time.Duration
-}
+type DeviceScanner struct {}
 
 // DeviceScanResult represents a single scan result
 type DeviceScanResult struct {
@@ -45,73 +40,8 @@ type ScanRequest struct {
 	Timeout  int    `form:"timeout"`
 }
 
-// NewDeviceCache creates and returns a new device cache
-func NewDeviceCache(ttl time.Duration) *DeviceCache {
-	cache := &DeviceCache{
-		devices:      make(map[string]*onvif.Device),
-		lastAccessed: make(map[string]time.Time),
-		ttl:          ttl,
-	}
-	go cache.startCleanup()
-	return cache
-}
-
-// startCleanup periodically removes old entries
-func (c *DeviceCache) startCleanup() {
-	ticker := time.NewTicker(c.ttl / 2)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		c.cleanup()
-	}
-}
-
-// cleanup removes expired devices
-func (c *DeviceCache) cleanup() {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	now := time.Now()
-	for key, lastAccess := range c.lastAccessed {
-		if now.Sub(lastAccess) > c.ttl {
-			delete(c.devices, key)
-			delete(c.lastAccessed, key)
-		}
-	}
-}
-
-// GetDevice returns a cached device or creates and caches a new one
-func (c *DeviceCache) GetDevice(xaddr, username, password string) (*onvif.Device, error) {
-	cacheKey := xaddr + "|" + username
-	c.mutex.RLock()
-	dev, found := c.devices[cacheKey]
-	c.mutex.RUnlock()
-
-	if found {
-		c.mutex.Lock()
-		c.lastAccessed[cacheKey] = time.Now()
-		c.mutex.Unlock()
-		return dev, nil
-	}
-
-	dev, err := onvif.NewDevice(onvif.DeviceParams{
-		Xaddr:    xaddr,
-		Username: username,
-		Password: password,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	c.mutex.Lock()
-	c.devices[cacheKey] = dev
-	c.lastAccessed[cacheKey] = time.Now()
-	c.mutex.Unlock()
-
-	return dev, nil
-}
-
 // PerformDeviceScan performs scanning for a list of IPs
-func (s *DeviceScanResult) PerformDeviceScan(ips []string, req ScanRequest, acceptedData []byte, timeout time.Duration) []DeviceScanResult {
+func (s *DeviceScanner) PerformDeviceScan(ips []string, req ScanRequest, acceptedData []byte, timeout time.Duration) []DeviceScanResult {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -145,7 +75,7 @@ func (s *DeviceScanResult) PerformDeviceScan(ips []string, req ScanRequest, acce
 }
 
 // scanSingleDevice handles ONVIF detection and info fetching
-func (s *DeviceScanResult) scanSingleDevice(ctx context.Context, ip string, req ScanRequest, acceptedData []byte) DeviceScanResult {
+func (s *DeviceScanner) scanSingleDevice(ctx context.Context, ip string, req ScanRequest, acceptedData []byte) DeviceScanResult {
 	result := DeviceScanResult{IP: ip}
 
 	select {
@@ -162,7 +92,7 @@ func (s *DeviceScanResult) scanSingleDevice(ctx context.Context, ip string, req 
 		return result
 	}
 
-	dev, err := s.createONVIFDevice(ctx, ip, req.Username, req.Password)
+	dev, err := cache.GlobalDeviceCache.GetDevice(ip, req.Username, req.Password)
 	if err != nil {
 		result.Error = fmt.Sprintf("Connection failed: %v", err)
 		return result
@@ -186,14 +116,14 @@ func (s *DeviceScanResult) scanSingleDevice(ctx context.Context, ip string, req 
 }
 
 // isONVIFDeviceAvailable performs a lightweight availability check
-func (s *DeviceScanResult) isONVIFDeviceAvailable(ctx context.Context, ip string) bool {
+func (s *DeviceScanner) isONVIFDeviceAvailable(ctx context.Context, ip string) bool {
 	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	return IsONVIFDeviceWithContext(checkCtx, ip)
 }
 
 // createONVIFDevice initializes an ONVIF device
-func (s *DeviceScanResult) createONVIFDevice(ctx context.Context, ip, username, password string) (*onvif.Device, error) {
+func (s *DeviceScanner) createONVIFDevice(ctx context.Context, ip, username, password string) (*onvif.Device, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	return onvif.NewDevice(onvif.DeviceParams{
@@ -205,7 +135,7 @@ func (s *DeviceScanResult) createONVIFDevice(ctx context.Context, ip, username, 
 }
 
 // getDeviceInformation fetches and type-asserts ONVIF device information
-func (s *DeviceScanResult) getDeviceInformation(ctx context.Context, dev *onvif.Device, acceptedData []byte) (*device.GetDeviceInformationResponse, error) {
+func (s *DeviceScanner) getDeviceInformation(ctx context.Context, dev *onvif.Device, acceptedData []byte) (*device.GetDeviceInformationResponse, error) {
 	resultChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 

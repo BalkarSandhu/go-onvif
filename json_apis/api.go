@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"go-onvif/json_apis/cache"
 	"go-onvif/json_apis/utils"
 	"go-onvif/onvif"
 	wsdiscovery "go-onvif/ws-discovery"
@@ -32,35 +33,17 @@ type Config struct {
 
 // APIServer is the main server structure
 type APIServer struct {
-	router      *gin.Engine
-	logger      zerolog.Logger
-	deviceCache *utils.DeviceCache
-	limiter     *rate.Limiter
-	config      Config
+	router       *gin.Engine
+	logger       zerolog.Logger
+	deviceCache  *cache.DeviceCache
+	devceScanner utils.DeviceScanner
+	limiter      *rate.Limiter
+	config       Config
 }
 
 const (
 	scanTimeout = 10 * time.Second
 )
-
-type DeviceScanResult struct {
-	IP              string `json:"ip"`
-	Alive           bool   `json:"alive"`
-	Manufacturer    string `json:"manufacturer,omitempty"`
-	Model           string `json:"model,omitempty"`
-	FirmwareVersion string `json:"firmware_version,omitempty"`
-	SerialNumber    string `json:"serial_number,omitempty"`
-	HardwareID      string `json:"hardware_id,omitempty"`
-	Error           string `json:"error,omitempty"`
-}
-
-type ScanRequest struct {
-	StartIP  string `form:"start" binding:"required"`
-	EndIP    string `form:"end" binding:"required"`
-	Username string `form:"username"`
-	Password string `form:"password"`
-	Timeout  int    `form:"timeout"`
-}
 
 func LoadConfig() Config {
 	err := godotenv.Load()
@@ -108,9 +91,10 @@ func NewAPIServer(config Config) *APIServer {
 	// Configure gin
 	gin.SetMode(gin.DebugMode)
 	router := gin.New()
+	router.SetTrustedProxies([]string{})
 	router.Use(gin.Recovery())
 
-	// Set up CORS
+	// Set up CORSgin
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
@@ -123,10 +107,12 @@ func NewAPIServer(config Config) *APIServer {
 	// Create rate limiter
 	limiter := rate.NewLimiter(rate.Limit(config.RateLimitReqs), config.RateLimitBurst)
 
+	cache.GlobalDeviceCache = cache.NewDeviceCache(10 * time.Minute)
+
 	return &APIServer{
 		router:      router,
 		logger:      logger,
-		deviceCache: utils.NewDeviceCache(10 * time.Minute),
+		deviceCache: cache.GlobalDeviceCache,
 		limiter:     limiter,
 		config:      config,
 	}
@@ -184,6 +170,9 @@ func (s *APIServer) SetupRoutes() {
 
 	//Scan IP range
 	s.router.GET("/scan", s.handleDeviceScan)
+	s.router.GET("/device_cache", s.getDeviceCache)
+	s.router.GET("/device_details", s.getDeviceDetails)
+
 }
 
 // handleServiceMethod processes all ONVIF service method calls
@@ -246,7 +235,7 @@ func (s *APIServer) CallServiceMethod(serviceName, methodName string, data []byt
 	case "ptz":
 		return utils.CallPTZMethod(methodName, dev, data)
 	case "media":
-		return utils.CallPTZMethod(methodName, dev, data)
+		return utils.CallMediaMethod(methodName, dev, data)
 	default:
 		return nil, errors.New("unknown service: " + serviceName)
 	}
@@ -368,9 +357,16 @@ func (s *APIServer) handleDeviceScan(c *gin.Context) {
 		Msg("Starting ONVIF device scan")
 
 	// Perform scan
-	var scanResult utils.DeviceScanResult
-	results := scanResult.PerformDeviceScan(ips, req, acceptedData, scanTimeoutDuration)
-	aliveCount := utils.CountAliveDevices(results)
+	results := s.devceScanner.PerformDeviceScan(ips, req, acceptedData, scanTimeoutDuration)
+
+	var aliveResults []utils.DeviceScanResult
+	for _, r := range results {
+		if r.Alive {
+			aliveResults = append(aliveResults, r)
+		}
+	}
+
+	aliveCount := utils.CountAliveDevices(aliveResults)
 
 	s.logger.Info().
 		Int("total_scanned", len(results)).
@@ -379,12 +375,119 @@ func (s *APIServer) handleDeviceScan(c *gin.Context) {
 
 	// Return results
 	c.JSON(http.StatusOK, gin.H{
-		"results": results,
+		"results": aliveResults,
 		"summary": gin.H{
 			"total_scanned": len(results),
 			"alive_devices": aliveCount,
 		},
 	})
+}
+
+func (s *APIServer) getDeviceCache(c *gin.Context) {
+	type Services struct {
+		Analytics string `json:"analytics,omitempty"`
+		Device    string `json:"device,omitempty"`
+		DeviceIO  string `json:"deviceio,omitempty"`
+		Events    string `json:"events,omitempty"`
+		Imaging   string `json:"imaging,omitempty"`
+		Media     string `json:"media,omitempty"`
+	}
+
+	type CachedDeviceInfo struct {
+		Xaddr    string   `json:"xaddr"`
+		Username string   `json:"username"`
+		Services Services `json:"services"`
+	}
+
+	cachedDevices := s.deviceCache.GetAllDevices()
+	response := make(map[string]CachedDeviceInfo)
+
+	for ip, dev := range cachedDevices {
+		deviceParams := dev.GetDeviceParams()
+		svcs := dev.GetServices()
+
+		response[ip] = CachedDeviceInfo{
+			Xaddr:    deviceParams.Xaddr,
+			Username: deviceParams.Username,
+			Services: Services{
+				Analytics: svcs["analytics"],
+				Device:    svcs["device"],
+				DeviceIO:  svcs["deviceio"],
+				Events:    svcs["events"],
+				Imaging:   svcs["imaging"],
+				Media:     svcs["media"],
+			},
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"cached_devices": response,
+	})
+}
+
+func (s *APIServer) getDeviceDetails(c *gin.Context) {
+	cachedDevices := s.deviceCache.GetAllDevices()
+	deviceDetails := make(map[string]interface{})
+
+	for ip, dev := range cachedDevices {
+		details := s.extractDeviceEssentials(ip, dev)
+		deviceDetails[ip] = details
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"device_details": deviceDetails,
+	})
+}
+
+func (s *APIServer) extractDeviceEssentials(ip string, dev *onvif.Device) map[string]interface{} {
+	details := make(map[string]interface{})
+
+	// Extract Device Information
+	if devInfo := s.getDeviceInformation(ip, dev); devInfo != nil {
+		details["device_info"] = devInfo
+	}
+
+	// Extract Network Interfaces
+	if netInfo := s.getNetworkInfo(ip, dev); netInfo != nil {
+		details["network_info"] = netInfo
+	}
+
+	// Extract Media Profiles and Stream URIs
+	if mediaInfo := s.getMediaInfo(ip, dev); mediaInfo != nil {
+		details["media_info"] = mediaInfo
+	}
+
+	return details
+}
+
+func (s *APIServer) getDeviceInformation(ip string, dev *onvif.Device) interface{} {
+	devInfoResp, err := utils.CallDeviceMethod("GetDeviceInformation", dev, nil)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("ip", ip).Msg("Failed to get device information")
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return devInfoResp
+}
+
+func (s *APIServer) getNetworkInfo(ip string, dev *onvif.Device) interface{} {
+	netResp, err := utils.CallDeviceMethod("GetNetworkInterfaces", dev, nil)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("ip", ip).Msg("Failed to get network interfaces")
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return netResp
+}
+
+func (s *APIServer) getMediaInfo(ip string, dev *onvif.Device) interface{} {
+	profilesResp, err := utils.CallMediaMethod("GetProfiles", dev, nil)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("ip", ip).Msg("Failed to get media profiles")
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return profilesResp
 }
 
 // Run starts the API server

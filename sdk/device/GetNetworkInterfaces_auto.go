@@ -6,10 +6,11 @@ package device
 
 import (
 	"context"
-	"github.com/juju/errors"
+	"go-onvif/device"
 	"go-onvif/onvif"
 	"go-onvif/sdk"
-	"go-onvif/device"
+
+	"github.com/juju/errors"
 )
 
 // Call_GetNetworkInterfaces forwards the call to dev.CallMethod() then parses the payload of the reply as a GetNetworkInterfacesResponse.
