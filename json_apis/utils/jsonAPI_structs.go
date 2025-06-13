@@ -3,18 +3,17 @@ package utils
 import (
 	"context"
 	"encoding/json"
-	"go-onvif/device"
-	"go-onvif/media"
-	"go-onvif/onvif"
-	"go-onvif/ptz"
-	device_rpc "go-onvif/sdk/device"
-	media_rpc "go-onvif/sdk/media"
-	ptz_rpc "go-onvif/sdk/ptz"
+	"go-onvif/internal/device"
+	"go-onvif/internal/media"
+	onvif "go-onvif/internal"
+	"go-onvif/internal/ptz"
+	device_rpc "go-onvif/internal/sdk/device"
+	media_rpc "go-onvif/internal/sdk/media"
+	ptz_rpc "go-onvif/internal/sdk/ptz"
 	"time"
 
 	"github.com/juju/errors"
 )
-
 
 func CallDeviceMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -515,7 +514,6 @@ func CallDeviceMethod(methodName string, dev *onvif.Device, data []byte) (interf
 		return nil, errors.New("unknown device method: " + methodName)
 	}
 }
-
 
 func CallPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface{}, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -1,9 +1,10 @@
 package cache
 
 import (
-	"go-onvif/onvif"
 	"sync"
 	"time"
+
+	onvif "go-onvif/internal"
 )
 
 // DeviceCache caches ONVIF devices to avoid repeated connections

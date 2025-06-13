@@ -3,9 +3,9 @@ package utils
 import (
 	"context"
 	"fmt"
-	"go-onvif/device"
+	onvif "go-onvif/internal"
+	"go-onvif/internal/device"
 	"go-onvif/json_apis/cache"
-	"go-onvif/onvif"
 	"net/http"
 	"sync"
 	"time"
@@ -17,7 +17,7 @@ const (
 	onvifPort          = 80
 )
 
-type DeviceScanner struct {}
+type DeviceScanner struct{}
 
 // DeviceScanResult represents a single scan result
 type DeviceScanResult struct {
