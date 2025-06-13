@@ -4,9 +4,10 @@ import (
 	"os"
 	"time"
 
-	"go-onvif/json_apis/cache"
-	"go-onvif/json_apis/config"
-	"go-onvif/json_apis/utils"
+	"go-onvif/api/cache"
+	"go-onvif/api/config"
+	"go-onvif/api/service"
+	"go-onvif/api/utils"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -15,12 +16,13 @@ import (
 )
 
 type APIServer struct {
-	router       *gin.Engine
-	logger       zerolog.Logger
-	deviceCache  *cache.DeviceCache
-	devceScanner utils.DeviceScanner
-	limiter      *rate.Limiter
-	config       config.Config
+	router        *gin.Engine
+	service				service.Service
+	logger        zerolog.Logger
+	deviceCache   *cache.DeviceCache
+	deviceScanner utils.DeviceScanner
+	limiter       *rate.Limiter
+	config        config.Config
 }
 
 func NewAPIServer(cfg config.Config) *APIServer {
@@ -59,4 +61,10 @@ func NewAPIServer(cfg config.Config) *APIServer {
 		limiter:     limiter,
 		config:      cfg,
 	}
+}
+
+// Run starts the API server
+func (s *APIServer) Run() error {
+	s.logger.Info().Str("port", s.config.Port).Msg("Starting ONVIF API server")
+	return s.router.Run(":" + s.config.Port)
 }

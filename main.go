@@ -1,8 +1,8 @@
 package main
 
 import (
-	api "go-onvif/json_apis"
-	"go-onvif/json_apis/config"
+	"go-onvif/api"
+	"go-onvif/api/config"
 	"log"
 )
 

@@ -10,6 +10,7 @@ require (
 	github.com/rs/zerolog v1.26.1
 	golang.org/x/net v0.38.0
 	golang.org/x/time v0.11.0
+	github.com/joho/godotenv v1.5.1
 )
 
 require (
@@ -23,7 +24,6 @@ require (
 	github.com/go-playground/validator/v10 v10.26.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect

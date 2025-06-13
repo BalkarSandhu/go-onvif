@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"net/http"
@@ -11,12 +11,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (s *APIServer) handleDiscovery(c *gin.Context) {
+func HandleDiscovery(c *gin.Context) {
 	iface := c.Query("interface")
 
 	devices, err := wsdiscovery.SendProbe(iface, nil, []string{"dn:NetworkVideoTransmitter"}, map[string]string{"dn": "http://www.onvif.org/ver10/network/wsdl"})
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Discovery failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Discovery failed: " + err.Error()})
 		return
 	}
@@ -26,7 +25,6 @@ func (s *APIServer) handleDiscovery(c *gin.Context) {
 	for _, deviceXML := range devices {
 		doc := etree.NewDocument()
 		if err := doc.ReadFromString(deviceXML); err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to parse device XML")
 			continue
 		}
 
