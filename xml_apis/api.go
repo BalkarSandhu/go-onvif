@@ -15,12 +15,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/juju/errors"
 	"github.com/rs/zerolog"
+	onvif "go-onvif/internal"
 	"golang.org/x/time/rate"
 
-	"github.com/BalkarSandhu/go-onvif/gosoap"
-	"github.com/BalkarSandhu/go-onvif/networking"
-	"github.com/BalkarSandhu/go-onvif/onvif"
-	wsdiscovery "github.com/BalkarSandhu/go-onvif/ws-discovery"
+	"go-onvif/internal/gosoap"
+	"go-onvif/internal/networking"
+	wsdiscovery "go-onvif/internal/ws-discovery"
 )
 
 // Config holds configuration for the API server

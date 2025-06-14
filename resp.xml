@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENC="http://www.w3.org/2003/05/soap-encoding"
+  xmlns:SOAP-ENV="http://www.w3.org/2003/05/soap-envelope"
+  xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema"
+  xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <SOAP-ENV:Body>
+    <trt:GetProfilesResponse>
+      <trt:Profiles token="M1_Profile1" fixed="true">
+        <tt:Name>M1_Profile1</tt:Name>
+        <tt:VideoSourceConfiguration token="VideoSourceConfig1">
+          <tt:Name>VideoSourceConfig1</tt:Name>
+          <tt:UseCount>4</tt:UseCount>
+          <tt:SourceToken>VideoSource1</tt:SourceToken>
+          <tt:Bounds x="0" y="0" width="1920" height="1080"></tt:Bounds>
+          <tt:Extension>
+            <tt:Rotate>
+              <tt:Mode>OFF</tt:Mode>
+            </tt:Rotate>
+          </tt:Extension>
+        </tt:VideoSourceConfiguration>
+        <tt:AudioSourceConfiguration token="AudioSourceConfig1">
+          <tt:Name>AudioSourceConfig1</tt:Name>
+          <tt:UseCount>4</tt:UseCount>
+          <tt:SourceToken>AudioSource1</tt:SourceToken>
+        </tt:AudioSourceConfiguration>
+        <tt:VideoEncoderConfiguration token="VideoEncoderConfig1_1">
+          <tt:Name>VideoEncoderConfig1_1</tt:Name>
+          <tt:UseCount>1</tt:UseCount>
+          <tt:Encoding>H264</tt:Encoding>
+          <tt:Resolution>
+            <tt:Width>1920</tt:Width>
+            <tt:Height>1080</tt:Height>
+          </tt:Resolution>
+          <tt:Quality>1.00</tt:Quality>
+          <tt:RateControl>
+            <tt:FrameRateLimit>30</tt:FrameRateLimit>
+            <tt:EncodingInterval>1</tt:EncodingInterval>
+            <tt:BitrateLimit>12288</tt:BitrateLimit>
+          </tt:RateControl>
+          <tt:H264>
+            <tt:GovLength>30</tt:GovLength>
+            <tt:H264Profile>Main</tt:H264Profile>
+          </tt:H264>
+          <tt:Multicast>
+            <tt:Address>
+              <tt:Type>IPv4</tt:Type>
+              <tt:IPv4Address>235.235.235.235</tt:IPv4Address>
+            </tt:Address>
+            <tt:Port>38018</tt:Port>
+            <tt:TTL>1</tt:TTL>
+            <tt:AutoStart>false</tt:AutoStart>
+          </tt:Multicast>
+          <tt:SessionTimeout>PT0S</tt:SessionTimeout>
+        </tt:VideoEncoderConfiguration>
+        <tt:AudioEncoderConfiguration token="AudioEncoderConfig1">
+          <tt:Name>AudioEncoderConfig1</tt:Name>
+          <tt:UseCount>4</tt:UseCount>
+          <tt:Encoding>G711</tt:Encoding>
+          <tt:Bitrate>64</tt:Bitrate>
+          <tt:SampleRate>8</tt:SampleRate>
+          <tt:Multicast>
+            <tt:Address>
+              <tt:Type>IPv4</tt:Type>
+              <tt:IPv4Address>236.236.236.236</tt:IPv4Address>
+            </tt:Address>
+            <tt:Port>38016</tt:Port>
+            <tt:TTL>1</tt:TTL>
+            <tt:AutoStart>false</tt:AutoStart>
+          </tt:Multicast>
+          <tt:SessionTimeout>PT0S</tt:SessionTimeout>
+        </tt:AudioEncoderConfiguration>
+        <tt:PTZConfiguration token="PTZConfig">
+          <tt:Name>PTZConfig</tt:Name>
+          <tt:UseCount>4</tt:UseCount>
+          <tt:NodeToken>PTZNode</tt:NodeToken>
+          <tt:DefaultRelativePanTiltTranslationSpace>
+            http://www.onvif.org/ver10/tptz/PanTiltSpaces/TranslationGenericSpace</tt:DefaultRelativePanTiltTranslationSpace>
+          <tt:DefaultRelativeZoomTranslationSpace>
+            http://www.onvif.org/ver10/tptz/ZoomSpaces/TranslationGenericSpace</tt:DefaultRelativeZoomTranslationSpace>
+          <tt:DefaultContinuousPanTiltVelocitySpace>
+            http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace</tt:DefaultContinuousPanTiltVelocitySpace>
+          <tt:DefaultContinuousZoomVelocitySpace>
+            http://www.onvif.org/ver10/tptz/ZoomSpaces/VelocityGenericSpace</tt:DefaultContinuousZoomVelocitySpace>
+          <tt:DefaultPTZSpeed>
+            <tt:PanTilt x="1.00" y="1.00"
+              space="http://www.onvif.org/ver10/tptz/PanTiltSpaces/GenericSpeedSpace"></tt:PanTilt>
+            <tt:Zoom x="1.00"
+              space="http://www.onvif.org/ver10/tptz/ZoomSpaces/ZoomGenericSpeedSpace"></tt:Zoom>
+          </tt:DefaultPTZSpeed>
+          <tt:DefaultPTZTimeout>PT1S</tt:DefaultPTZTimeout>
+        </tt:PTZConfiguration>
+        <tt:Extension>
+          <tt:AudioOutputConfiguration token="AudioOutputConfig1">
+            <tt:Name>AudioOutputConfig1</tt:Name>
+            <tt:UseCount>4</tt:UseCount>
+            <tt:OutputToken>AudioOutput1</tt:OutputToken>
+            <tt:OutputLevel>8</tt:OutputLevel>
+          </tt:AudioOutputConfiguration>
+          <tt:AudioDecoderConfiguration token="AudioDecoderConfig1">
+            <tt:Name>AudioDecoderConfig1</tt:Name>
+            <tt:UseCount>4</tt:UseCount>
+          </tt:AudioDecoderConfiguration>
+        </tt:Extension>
+      </trt:Profiles>
+      <trt:Profiles token="M1_Profile2" fixed="true">
+        <tt:Name>M1_Profile2</tt:Name>
+        <tt:VideoSourceConfiguration token="VideoSourceConfig1">
+          <tt:Name>VideoSourceConfig1</tt:Name>
+          <tt:UseCount>4</tt:UseCount>
+          <tt:SourceToken>VideoSource1</tt:SourceToken>
+          <tt:Bounds x="0" y="0" width="1920" height="1080"></tt:Bounds>
+          <tt:Extension>
+            <tt:Rotate>
+              <tt:Mode>OFF</tt:Mode>
+            </tt:Rotate>
+          </tt:Extension>
+        </tt:VideoSourceConfiguration>
+        <tt:AudioSourceConfiguration token="AudioSourceConfig1">
+          <tt:Name>AudioSourceConfig1</tt:Name>
+          <tt:UseCount>4</tt:UseCount>
+          <tt:SourceToken>AudioSource1</tt:SourceToken>
+        </tt:AudioSourceConfiguration>
+        <tt:VideoEncoderConfiguration token="VideoEncoderConfig1_2">
+          <tt:Name>VideoEncoderConfig1_2</tt:Name>
+          <tt:UseCount>1</tt:UseCount>
+          <tt:Encoding>H264</tt:Encoding>
+          <tt:Resolution>
+            <tt:Width>640</tt:Width>
+            <tt:Height>360</tt:Height>
+          </tt:Resolution>
+          <tt:Quality>1.00</tt:Quality>
+          <tt:RateControl>
+            <tt:FrameRateLimit>30</tt:FrameRateLimit>
+            <tt:EncodingInterval>1</tt:EncodingInterval>
+            <tt:BitrateLimit>3072</tt:BitrateLimit>
+          </tt:RateControl>
+          <tt:H264>
+            <tt:GovLength>30</tt:GovLength>
+            <tt:H264Profile>Main</tt:H264Profile>
+          </tt:H264>
+          <tt:Multicast>
+            <tt:Address>
+              <tt:Type>IPv4</tt:Type>
+              <tt:IPv4Address>235.235.235.235</tt:IPv4Address>
+            </tt:Address>
+            <tt:Port>38020</tt:Port>
+            <tt:TTL>1</tt:TTL>
+            <tt:AutoStart>false</tt:AutoStart>
+          </tt:Multicast>
+          <tt:SessionTimeout>PT0S</tt:SessionTimeout>
+        </tt:VideoEncoderConfiguration>
+        <tt:AudioEncoderConfiguration token="AudioEncoderConfig1">
+          <tt:Name>AudioEncoderConfig1</tt:Name>
+          <tt:UseCount>4</tt:UseCount>
+          <tt:Encoding>G711</tt:Encoding>
+          <tt:Bitrate>64</tt:Bitrate>
+          <tt:SampleRate>8</tt:SampleRate>
+          <tt:Multicast>
+            <tt:Address>
+              <tt:Type>IPv4</tt:Type>
+              <tt:IPv4Address>236.236.236.236</tt:IPv4Address>
+            </tt:Address>
+            <tt:Port>38016</tt:Port>
+            <tt:TTL>1</tt:TTL>
+            <tt:AutoStart>false</tt:AutoStart>
+          </tt:Multicast>
+          <tt:SessionTimeout>PT0S</tt:SessionTimeout>
+        </tt:AudioEncoderConfiguration>
+        <tt:PTZConfiguration token="PTZConfig">
+          <tt:Name>PTZConfig</tt:Name>
+          <tt:UseCount>4</tt:UseCount>
+          <tt:NodeToken>PTZNode</tt:NodeToken>
+          <tt:DefaultRelativePanTiltTranslationSpace>
+            http://www.onvif.org/ver10/tptz/PanTiltSpaces/TranslationGenericSpace</tt:DefaultRelativePanTiltTranslationSpace>
+          <tt:DefaultRelativeZoomTranslationSpace>
+            http://www.onvif.org/ver10/tptz/ZoomSpaces/TranslationGenericSpace</tt:DefaultRelativeZoomTranslationSpace>
+          <tt:DefaultContinuousPanTiltVelocitySpace>
+            http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace</tt:DefaultContinuousPanTiltVelocitySpace>
+          <tt:DefaultContinuousZoomVelocitySpace>
+            http://www.onvif.org/ver10/tptz/ZoomSpaces/VelocityGenericSpace</tt:DefaultContinuousZoomVelocitySpace>
+          <tt:DefaultPTZSpeed>
+            <tt:PanTilt x="1.00" y="1.00"
+              space="http://www.onvif.org/ver10/tptz/PanTiltSpaces/GenericSpeedSpace"></tt:PanTilt>
+            <tt:Zoom x="1.00"
+              space="http://www.onvif.org/ver10/tptz/ZoomSpaces/ZoomGenericSpeedSpace"></tt:Zoom>
+          </tt:DefaultPTZSpeed>
+          <tt:DefaultPTZTimeout>PT1S</tt:DefaultPTZTimeout>
+        </tt:PTZConfiguration>
+        <tt:Extension>
+          <tt:AudioOutputConfiguration token="AudioOutputConfig1">
+            <tt:Name>AudioOutputConfig1</tt:Name>
+            <tt:UseCount>4</tt:UseCount>
+            <tt:OutputToken>AudioOutput1</tt:OutputToken>
+            <tt:OutputLevel>8</tt:OutputLevel>
+          </tt:AudioOutputConfiguration>
+          <tt:AudioDecoderConfiguration token="AudioDecoderConfig1">
+            <tt:Name>AudioDecoderConfig1</tt:Name>
+            <tt:UseCount>4</tt:UseCount>
+          </tt:AudioDecoderConfiguration>
+        </tt:Extension>
+      </trt:Profiles>
+    </trt:GetProfilesResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
