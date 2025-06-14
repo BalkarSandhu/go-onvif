@@ -55,10 +55,6 @@ func (c *DeviceCache) cleanup() {
 // GetDevice returns a cached device or creates and caches a new one
 func (c *DeviceCache) GetDevice(xaddr, username, password string) (*onvif.Device, error) {
 
-	if c == nil {
-		return nil, errors.New("device cache is nil")
-	}
-
 	cacheKey := xaddr
 	c.mutex.RLock()
 	dev, found := c.devices[cacheKey]
