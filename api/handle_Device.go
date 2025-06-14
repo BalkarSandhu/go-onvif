@@ -2,6 +2,7 @@ package api
 
 import (
 	"go-onvif/api/handlers"
+	"go-onvif/api/service"
 	"go-onvif/api/utils"
 	onvif "go-onvif/internal"
 	"net/http"
@@ -172,7 +173,7 @@ func (s *APIServer) extractDeviceEssentials(ip string, dev *onvif.Device) map[st
 }
 
 func (s *APIServer) getDeviceInformation(ip string, dev *onvif.Device) interface{} {
-	devInfoResp, err := utils.CallDeviceMethod("GetDeviceInformation", dev, nil)
+	devInfoResp, err := service.CallDeviceMethod("GetDeviceInformation", dev, nil)
 	if err != nil {
 		s.logger.Warn().Err(err).Str("ip", ip).Msg("Failed to get device information")
 		return map[string]interface{}{"error": err.Error()}
@@ -182,7 +183,7 @@ func (s *APIServer) getDeviceInformation(ip string, dev *onvif.Device) interface
 }
 
 func (s *APIServer) getNetworkInfo(ip string, dev *onvif.Device) interface{} {
-	netResp, err := utils.CallDeviceMethod("GetNetworkInterfaces", dev, nil)
+	netResp, err := service.CallDeviceMethod("GetNetworkInterfaces", dev, nil)
 	if err != nil {
 		s.logger.Warn().Err(err).Str("ip", ip).Msg("Failed to get network interfaces")
 		return map[string]interface{}{"error": err.Error()}

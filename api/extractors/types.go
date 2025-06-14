@@ -3,12 +3,12 @@ package extractors
 type ProfileInfo struct {
 	Name         string            `json:"name,omitempty"`
 	Token        string            `json:"token,omitempty"`
-	StreamUri    interface{}       `json:"stream_uri,omitempty"`
+	StreamUri    string      				`json:"stream_uri,omitempty"`
 	Fixed        bool              `json:"fixed,omitempty"`
 	VideoEncoder *VideoEncoderInfo `json:"video_encoder,omitempty"`
 	VideoSource  *VideoSourceInfo  `json:"video_source,omitempty"`
 	Analytics    *AnalyticsInfo    `json:"analytics,omitempty"`
-	PTZ          *PTZInfo          `json:"ptz,omitempty"`
+	PTZ          interface{}        `json:"ptz,omitempty"`
 	Metadata     *MetadataInfo     `json:"metadata,omitempty"`
 }
 

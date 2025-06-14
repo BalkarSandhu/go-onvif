@@ -1,8 +1,11 @@
 package internal
 
 import (
+	"bytes"
 	"encoding/xml"
 	"errors"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -104,13 +107,6 @@ func (dev *Device) GetDeviceParams() DeviceParams {
 	return dev.params
 }
 
-func readResponse(resp *http.Response) string {
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		panic(err)
-	}
-	return string(b)
-}
 
 // GetAvailableDevicesAtSpecificEthernetInterface ...
 func GetAvailableDevicesAtSpecificEthernetInterface(interfaceName string) ([]Device, error) {
@@ -257,18 +253,6 @@ func (dev Device) getEndpoint(endpoint string) (string, error) {
 
 // CallMethod functions call an method, defined <method> struct.
 // You should use Authenticate method to call authorized requests.
-func (dev Device) CallMethod(method interface{}) (*http.Response, error) {
-	pkgPath := strings.Split(reflect.TypeOf(method).PkgPath(), "/")
-	pkg := strings.ToLower(pkgPath[len(pkgPath)-1])
-
-	endpoint, err := dev.getEndpoint(pkg)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := dev.callMethodDo(endpoint, method)
-	return resp, err
-}
-
 // func (dev Device) CallMethod(method interface{}) (*http.Response, error) {
 // 	pkgPath := strings.Split(reflect.TypeOf(method).PkgPath(), "/")
 // 	pkg := strings.ToLower(pkgPath[len(pkgPath)-1])
@@ -277,28 +261,40 @@ func (dev Device) CallMethod(method interface{}) (*http.Response, error) {
 // 	if err != nil {
 // 		return nil, err
 // 	}
-
 // 	resp, err := dev.callMethodDo(endpoint, method)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	// Read the full response body
-// 	defer resp.Body.Close()
-// 	bodyBytes, err := io.ReadAll(resp.Body)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	// Print the SOAP response as string
-// 	fmt.Println("SOAP Response:")
-// 	fmt.Println(string(bodyBytes))
-
-// 	// Re-wrap body so it can still be read by caller
-// 	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-// 	return resp, nil
+// 	return resp, err
 // }
+
+func (dev Device) CallMethod(method interface{}) (*http.Response, error) {
+	pkgPath := strings.Split(reflect.TypeOf(method).PkgPath(), "/")
+	pkg := strings.ToLower(pkgPath[len(pkgPath)-1])
+
+	endpoint, err := dev.getEndpoint(pkg)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := dev.callMethodDo(endpoint, method)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read the full response body
+	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Print the SOAP response as string
+	fmt.Println("SOAP Response:")
+	fmt.Println(string(bodyBytes))
+
+	// Re-wrap body so it can still be read by caller
+	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	return resp, nil
+}
 
 // CallMethod functions call an method, defined <method> struct with authentication data
 func (dev Device) callMethodDo(endpoint string, method interface{}) (*http.Response, error) {

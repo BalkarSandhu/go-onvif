@@ -177,21 +177,8 @@ func ExtractAnalyticsInfo(analytics interface{}) *AnalyticsInfo {
 }
 
 // extractPTZInfo extracts PTZ configuration
-func ExtractPTZInfo(ptz interface{}) *PTZInfo {
-	ptzMap, ok := ptz.(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	info := &PTZInfo{}
-	if nodeToken, ok := ptzMap["NodeToken"].(string); ok {
-		info.NodeToken = nodeToken
-	}
-	if defaultSpeed, ok := ptzMap["DefaultPTZSpeed"].(map[string]interface{}); ok {
-		info.DefaultSpeed = defaultSpeed
-	}
-
-	return info
+func ExtractPTZInfo(ptz any) any {
+	return ptz
 }
 
 // extractMetadataInfo extracts metadata configuration

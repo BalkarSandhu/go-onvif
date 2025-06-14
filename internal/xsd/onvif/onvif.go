@@ -554,14 +554,14 @@ type PTZSpeed struct {
 }
 
 type Vector2D struct {
-	X     float64
-	Y     float64
-	Space xsd.AnyURI
+	X     float64    `xml:"x,attr"`
+	Y     float64    `xml:"y,attr"`
+	Space xsd.AnyURI `xml:"space,attr"`
 }
 
 type Vector1D struct {
-	X     float64
-	Space xsd.AnyURI
+	X     float64    `xml:"x,attr"`
+	Space xsd.AnyURI `xml:"space,attr"`
 }
 
 type PanTiltLimits struct {

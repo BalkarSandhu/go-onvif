@@ -3,9 +3,10 @@ package utils
 import (
 	"context"
 	"fmt"
+	"go-onvif/api/cache"
+	"go-onvif/api/service"
 	onvif "go-onvif/internal"
 	"go-onvif/internal/device"
-	"go-onvif/api/cache"
 	"net/http"
 	"sync"
 	"time"
@@ -140,7 +141,7 @@ func (s *DeviceScanner) getDeviceInformation(ctx context.Context, dev *onvif.Dev
 	errChan := make(chan error, 1)
 
 	go func() {
-		info, err := CallDeviceMethod("GetDeviceInformation", dev, acceptedData)
+		info, err := service.CallDeviceMethod("GetDeviceInformation", dev, acceptedData)
 		if err != nil {
 			errChan <- err
 			return

@@ -13,8 +13,14 @@ import (
 )
 
 type Service struct {
-	logger        zerolog.Logger
-	deviceCache   *cache.DeviceCache
+	logger      zerolog.Logger
+	deviceCache *cache.DeviceCache
+}
+
+func NewService(dc *cache.DeviceCache) Service {
+	return Service{
+		deviceCache: dc,
+	}
 }
 
 // handleServiceMethod handles dynamic ONVIF service calls.
@@ -58,7 +64,7 @@ func (s *Service) HandleServiceMethod(c *gin.Context) {
 }
 
 // CallServiceMethod dispatches ONVIF method calls based on the service name.
-func (s *Service)callServiceMethod(serviceName, methodName string, data []byte, dev *onvif.Device) (interface{}, error) {
+func (s *Service) callServiceMethod(serviceName, methodName string, data []byte, dev *onvif.Device) (interface{}, error) {
 	switch strings.ToLower(serviceName) {
 	case "device":
 		return CallDeviceMethod(methodName, dev, data)

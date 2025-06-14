@@ -17,7 +17,7 @@ import (
 
 type APIServer struct {
 	router        *gin.Engine
-	service				service.Service
+	service       service.Service
 	logger        zerolog.Logger
 	deviceCache   *cache.DeviceCache
 	deviceScanner utils.DeviceScanner
@@ -52,12 +52,14 @@ func NewAPIServer(cfg config.Config) *APIServer {
 
 	limiter := rate.NewLimiter(rate.Limit(cfg.RateLimitReqs), cfg.RateLimitBurst)
 
-	cache.GlobalDeviceCache = cache.NewDeviceCache(10 * time.Minute)
+	dc := cache.NewDeviceCache(10 * time.Minute)
+	svc := service.NewService(dc)
 
 	return &APIServer{
 		router:      router,
 		logger:      logger,
-		deviceCache: cache.GlobalDeviceCache,
+		deviceCache: dc,
+		service:     svc,
 		limiter:     limiter,
 		config:      cfg,
 	}

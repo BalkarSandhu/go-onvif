@@ -2,12 +2,12 @@ package handlers
 
 import (
 	"go-onvif/api/extractors"
-	"go-onvif/api/utils"
+	"go-onvif/api/service"
 	onvif "go-onvif/internal"
 )
 
 func GetMediaInfo(ip string, dev *onvif.Device) interface{} {
-	profilesResp, err := utils.CallMediaMethod("GetProfiles", dev, nil)
+	profilesResp, err := service.CallMediaMethod("GetProfiles", dev, nil)
 	if err != nil {
 		return extractors.ErrorResponse{Error: err.Error()}
 	}
