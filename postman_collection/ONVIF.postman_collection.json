@@ -1,10 +1,9 @@
 {
 	"info": {
-		"_postman_id": "9de49886-1b35-452d-8843-eb4800d91ce2",
+		"_postman_id": "3eca228c-cc13-4020-80c7-4fd5cb74dd27",
 		"name": "ONVIF",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		"_exporter_id": "43862794",
-		"_collection_link": "https://balkarsandhu.postman.co/workspace/Balkar-Sandhu's-Workspace~8ce8d7db-2b20-4ce1-8534-dede2ac32c9d/collection/43862794-9de49886-1b35-452d-8843-eb4800d91ce2?action=share&source=collection_link&creator=43862794"
+		"_exporter_id": "40965506"
 	},
 	"item": [
 		{
@@ -17,10 +16,10 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "// {\r\n//     \"Category\": \"All\"\r\n// }\r\n<tds:GetCapabilities><tds:Category>All</tds:Category></tds:GetCapabilities>",
+							"raw": "{\r\n    \"Category\": \"All\"\r\n}",
 							"options": {
 								"raw": {
-									"language": "xml"
+									"language": "json"
 								}
 							}
 						},
@@ -430,6 +429,15 @@
 					"request": {
 						"method": "POST",
 						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
 						"url": {
 							"raw": "{{baseurl}}/device/GetNetworkInterfaces",
 							"host": [
@@ -4520,6 +4528,33 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "xml"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/GetConfigurations",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"GetConfigurations"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GetConfiguration",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
 							"raw": "<tptz:GetConfigurations />",
 							"options": {
 								"raw": {
@@ -4535,6 +4570,320 @@
 							"path": [
 								"ptz",
 								"GetConfigurations"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GetConfigurationOptions",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"ProfileToken\": \"M1_Profile1\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/GetConfigurationOptions",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"GetConfigurationOptions"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "New Request",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"Token\": \"PTZConfig\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/GetConfiguration",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"GetConfiguration"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GetPresetTours",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/GetPresetTours",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"GetPresetTours"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GetStatus",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n   \"ProfileToken\": \"M1_Profile1\"\r\n}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/GetStatus",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"GetStatus"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Stop",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"ProfileToken\": \"M1_Profile1\",\r\n  \"PanTilt\": true,\r\n  \"Zoom\": true\r\n}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/Stop",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"Stop"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GetPresets",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n      \"Token\": \"PTZConfig\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/GetPresets",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"GetPresets"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GetServiceCapabilities",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<tptz:GetConfigurations />"
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/GetServiceCapabilities",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"GetServiceCapabilities"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GetNodes",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": ""
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/GetNodes",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"GetNodes"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GetNode",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n     \"NodeToken\": \"\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/GetNode",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"GetNode"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "ContinuousMove",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "// // Move Right\r\n// {\r\n//   \"ProfileToken\": \"M1_Profile1\",\r\n//   \"Velocity\": {\r\n//     \"PanTilt\": { \"x\": 0.1, \"y\": 0 },\r\n//     \"Zoom\": { \"x\": 0 }\r\n//   },\r\n//   \"Timeout\": \"PT0.5S\"\r\n// }\r\n\r\n// // Move Left\r\n// {\r\n//   \"ProfileToken\": \"M1_Profile1\",\r\n//   \"Velocity\": {\r\n//     \"PanTilt\": { \"x\": -0.1, \"y\": 0 },\r\n//     \"Zoom\": { \"x\": 0 }\r\n//   },\r\n//   \"Timeout\": \"PT0.5S\"\r\n// }\r\n\r\n// // Move Up\r\n// {\r\n//   \"ProfileToken\": \"M1_Profile1\",\r\n//   \"Velocity\": {\r\n//     \"PanTilt\": { \"x\": 0, \"y\": 0.1 },\r\n//     \"Zoom\": { \"x\": 0 }\r\n//   },\r\n//   \"Timeout\": \"PT0.5S\"\r\n// }\r\n\r\n\r\n// // Move Down\r\n// {\r\n//   \"ProfileToken\": \"M1_Profile1\",\r\n//   \"Velocity\": {\r\n//     \"PanTilt\": { \"x\": 0, \"y\": -0.1 },\r\n//     \"Zoom\": { \"x\": 0 }\r\n//   },\r\n//   \"Timeout\": \"PT0.5S\"\r\n// }\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/ContinuousMove",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"ContinuousMove"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "RelativeMove",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"ProfileToken\": \"M1_Profile1\",\r\n  \"Translation\": {\r\n    \"PanTilt\": {\r\n      \"x\": 0.5,\r\n      \"y\": -0.2\r\n    },\r\n    \"Zoom\": {\r\n      \"x\": 0.3\r\n    }\r\n  },\r\n  \"Speed\": {\r\n    \"PanTilt\": {\r\n      \"x\": 0.5,\r\n      \"y\": 0.5\r\n    },\r\n    \"Zoom\": {\r\n      \"x\": 0.5\r\n    }\r\n  },\r\n  \"Timeout\": \"PT1S\"\r\n}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/RelativeMove",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"RelativeMove"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "AbsoluteMove",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"ProfileToken\": \"M1_Profile1\",\r\n  \"Position\": {\r\n    \"PanTilt\": {\r\n      \"x\": 0.5,\r\n      \"y\": -0.2\r\n    },\r\n    \"Zoom\": {\r\n      \"x\": 0.3\r\n    }\r\n  },\r\n  \"Speed\": {\r\n    \"PanTilt\": {\r\n      \"x\": 0.5,\r\n      \"y\": 0.5\r\n    },\r\n    \"Zoom\": {\r\n      \"x\": 0.5\r\n    }\r\n  },\r\n  \"Timeout\": \"PT1S\"\r\n}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseurl}}/ptz/AbsoluteMove",
+							"host": [
+								"{{baseurl}}"
+							],
+							"path": [
+								"ptz",
+								"AbsoluteMove"
 							]
 						}
 					},
@@ -4755,6 +5104,7 @@
 			"script": {
 				"type": "text/javascript",
 				"packages": {},
+				"requests": {},
 				"exec": [
 					"pm.request.headers.add({\r",
 					"    key: 'username',\r",
@@ -4762,11 +5112,11 @@
 					"});\r",
 					"pm.request.headers.add({\r",
 					"    key: 'password',\r",
-					"    value: 'admin123'\r",
+					"    value: 'Bccl@2025'\r",
 					"});\r",
 					"pm.request.headers.add({\r",
 					"    key: 'xaddr',\r",
-					"    value: '192.168.1.16'\r",
+					"    value: '172.16.44.58'\r",
 					"});\r",
 					""
 				]
@@ -4777,6 +5127,7 @@
 			"script": {
 				"type": "text/javascript",
 				"packages": {},
+				"requests": {},
 				"exec": [
 					""
 				]
@@ -4786,8 +5137,7 @@
 	"variable": [
 		{
 			"key": "baseurl",
-			"value": "http://localhost:8081",
-			"type": "string"
+			"value": "http://localhost:8081"
 		}
 	]
 }
