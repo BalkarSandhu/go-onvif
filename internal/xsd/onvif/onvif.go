@@ -554,13 +554,13 @@ type PTZSpeed struct {
 }
 
 type Vector2D struct {
-	X     float64    `xml:"x,attr"`
-	Y     float64    `xml:"y,attr"`
+	X float64 `xml:"x,attr"`
+	Y float64 `xml:"y,attr"`
 	// Space xsd.AnyURI `xml:"space,attr"`
 }
 
 type Vector1D struct {
-	X     float64    `xml:"x,attr"`
+	X float64 `xml:"x,attr"`
 	// Space xsd.AnyURI `xml:"space,attr"`
 }
 
@@ -1026,8 +1026,8 @@ type PTZStatus struct {
 }
 
 type PTZMoveStatus struct {
-	PanTilt MoveStatus
-	Zoom    MoveStatus
+	PanTilt string
+	Zoom    string
 }
 
 type MoveStatus struct {

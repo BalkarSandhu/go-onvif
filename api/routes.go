@@ -11,4 +11,5 @@ func (s *APIServer) SetupRoutes() {
 	s.router.GET("/scan", s.handleDeviceScan)
 	s.router.GET("/device_cache", s.getDeviceCache)
 	s.router.GET("/device_details", s.getDeviceDetails)
+
 }
