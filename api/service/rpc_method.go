@@ -11,7 +11,8 @@ import (
 	device_rpc "go-onvif/internal/sdk/device"
 	media_rpc "go-onvif/internal/sdk/media"
 	ptz_rpc "go-onvif/internal/sdk/ptz"
-	go_onvif "go-onvif/internal/xsd/onvif"
+	xsd_onvif "go-onvif/internal/xsd/onvif"
+
 	"math"
 	"time"
 
@@ -702,245 +703,275 @@ func CallPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface
 			return nil, err
 		}
 		return ptz_rpc.Call_GetCompatibleConfigurations(ctx, dev, request)
-	case "GeoMove2":
-		// 1️⃣ Parse request and validate
-		var request PTZRequest
+	case "AbsoluteMove2":
+		var request AbsoluteMove2
 		if err := json.Unmarshal(data, &request); err != nil {
-			return nil, fmt.Errorf("invalid request: %w", err)
+			return nil, err
 		}
 
-		// Validate required fields
-		if request.ProfileToken == "" {
-			return nil, fmt.Errorf("missing ProfileToken")
-		}
-		if request.Camera.Latitude < -90 || request.Camera.Latitude > 90 {
-			return nil, fmt.Errorf("invalid camera latitude: %f", request.Camera.Latitude)
-		}
-		if request.Camera.Longitude < -180 || request.Camera.Longitude > 180 {
-			return nil, fmt.Errorf("invalid camera longitude: %f", request.Camera.Longitude)
-		}
-		if request.Target.Latitude < -90 || request.Target.Latitude > 90 {
-			return nil, fmt.Errorf("invalid target latitude: %f", request.Target.Latitude)
-		}
-		if request.Target.Longitude < -180 || request.Target.Longitude > 180 {
-			return nil, fmt.Errorf("invalid target longitude: %f", request.Target.Longitude)
-		}
+		// Extract target position from request
+		targetPan := request.Position.PanTilt.X
+		targetTilt := request.Position.PanTilt.Y
+		targetZoom := request.Position.Zoom.X
 
-		// Create status request
-		statusRequest := ptz.GetStatus{
-			ProfileToken: go_onvif.ReferenceToken(request.ProfileToken),
-		}
-
-		// Get initial PTZ status
-		initialStatus, err := ptz_rpc.Call_GetStatus(ctx, dev, statusRequest)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get initial PTZ status: %w", err)
-		}
-
-		// 2️⃣ Configuration
+		// Configuration
 		const (
-			pollInterval      = 100 * time.Millisecond // Fast polling for smooth tracking
-			velocityThreshold = 0.01                   // Consider stopped if velocity < 1%
-			maxIterations     = 100                    // Max iterations (10 seconds at 100ms)
-			convergenceCount  = 3                      // Require N consecutive "at target" readings
-			timeoutDuration   = 15 * time.Second       // Overall timeout
+			POSITION_TOLERANCE = 0.05 // Acceptable position error
+			MAX_SPEED          = 0.5  // Maximum movement speed
+			MIN_SPEED          = 0.1  // Minimum speed to ensure movement
+			TIMEOUT            = 30 * time.Second
+			POLL_INTERVAL      = 100 * time.Millisecond
 		)
 
-		// Create controller for zoom state tracking
-		controller := NewPTZGeoController(request.ProfileToken)
-		controller.CurrentZoom = float64(initialStatus.PTZStatus.Position.Zoom.X)
-		controller.ApplySettings(request.Settings)
+		startTime := time.Now()
 
-		// 3️⃣ Set up timeout context
-		ctxWithTimeout, cancel := context.WithTimeout(ctx, timeoutDuration)
-		defer cancel()
-
-		// 4️⃣ Feedback control loop with continuous adjustment
-		var (
-			consecutiveAtTarget int
-			lastError           error
-			iteration           int
-			totalDistance       float64
-			movementHistory     []map[string]interface{}
-		)
-
-		for iteration = 0; iteration < maxIterations; iteration++ {
-			// Check for context cancellation
-			select {
-			case <-ctxWithTimeout.Done():
-				lastError = fmt.Errorf("operation timeout after %v", timeoutDuration)
-				goto StopMovement
-			default:
-			}
-
-			// Get latest status
-			currStatus, err := ptz_rpc.Call_GetStatus(ctxWithTimeout, dev, statusRequest)
-			if err != nil {
-				lastError = fmt.Errorf("failed to get status in loop (iteration %d): %w", iteration, err)
-				break
-			}
-
-			// Update controller with current zoom
-			controller.CurrentZoom = float64(currStatus.PTZStatus.Position.Zoom.X)
-
-			// Generate movement command based on current position
-			moveCmd, err := GetMoveParams(currStatus, data)
-			if err != nil {
-				lastError = fmt.Errorf("failed to generate move params (iteration %d): %w", iteration, err)
-				break
-			}
-
-			// Extract velocities
-			panVel := moveCmd.Velocity.PanTilt.X
-			tiltVel := moveCmd.Velocity.PanTilt.Y
-			zoomVel := moveCmd.Velocity.Zoom.X
-
-			// Calculate current position change for tracking
-			if iteration > 0 && len(movementHistory) > 0 {
-				prev := movementHistory[len(movementHistory)-1]
-				panDiff := float64(currStatus.PTZStatus.Position.PanTilt.X) - prev["pan"].(float64)
-				tiltDiff := float64(currStatus.PTZStatus.Position.PanTilt.Y) - prev["tilt"].(float64)
-				distance := math.Sqrt(panDiff*panDiff + tiltDiff*tiltDiff)
-				totalDistance += distance
-			}
-
-			// Record movement history (keep last 10 for debugging)
-			historyEntry := map[string]interface{}{
-				"iteration": iteration,
-				"pan":       float64(currStatus.PTZStatus.Position.PanTilt.X),
-				"tilt":      float64(currStatus.PTZStatus.Position.PanTilt.Y),
-				"zoom":      float64(currStatus.PTZStatus.Position.Zoom.X),
-				"pan_vel":   panVel,
-				"tilt_vel":  tiltVel,
-				"zoom_vel":  zoomVel,
-			}
-			movementHistory = append(movementHistory, historyEntry)
-			if len(movementHistory) > 10 {
-				movementHistory = movementHistory[1:]
-			}
-
-			// Check if we've reached the target (all velocities near zero)
-			atTarget := math.Abs(panVel) <= velocityThreshold &&
-				math.Abs(tiltVel) <= velocityThreshold &&
-				math.Abs(zoomVel) <= velocityThreshold
-
-			if atTarget {
-				consecutiveAtTarget++
-				if consecutiveAtTarget >= convergenceCount {
-					// Successfully reached target - stop early
-					break
+		// Position control loop
+		for {
+			// 1. Check timeout
+			if time.Since(startTime) > TIMEOUT {
+				// Stop camera
+				stopReq := ptz.Stop{
+					ProfileToken: request.ProfileToken,
+					PanTilt:      true,
+					Zoom:         true,
 				}
-				// Even if at target, still send zero velocity command to maintain position
-			} else {
-				consecutiveAtTarget = 0
+				ptz_rpc.Call_Stop(ctx, dev, stopReq)
+				return nil, fmt.Errorf("timeout: could not reach target position")
 			}
 
-			// Send updated continuous move command
-			_, err = ptz_rpc.Call_ContinuousMove(ctxWithTimeout, dev, *moveCmd)
+			// 2. Get current position
+			statusReq := ptz.GetStatus{
+				ProfileToken: request.ProfileToken,
+			}
+			status, err := ptz_rpc.Call_GetStatus(ctx, dev, statusReq)
 			if err != nil {
-				lastError = fmt.Errorf("failed to execute continuous move (iteration %d): %w", iteration, err)
-				break
+				return nil, fmt.Errorf("failed to get status: %w", err)
 			}
 
-			// Wait before next iteration
-			time.Sleep(pollInterval)
-		}
+			currentPan := status.PTZStatus.Position.PanTilt.X
+			currentTilt := status.PTZStatus.Position.PanTilt.Y
+			currentZoom := status.PTZStatus.Position.Zoom.X
 
-	StopMovement:
-		// 5️⃣ Stop movement explicitly
-		stopCmd := ptz.Stop{
-			ProfileToken: go_onvif.ReferenceToken(request.ProfileToken),
-			PanTilt:      true,
-			Zoom:         true,
-		}
-		_, stopErr := ptz_rpc.Call_Stop(ctx, dev, stopCmd)
-		if stopErr != nil {
-			// Don't fail the whole operation on stop error, but log it
-			if lastError == nil {
-				lastError = fmt.Errorf("failed to stop PTZ: %w", stopErr)
-			} else {
-				lastError = fmt.Errorf("%w; also failed to stop PTZ: %v", lastError, stopErr)
+			// 3. Calculate distances
+			panDistance := targetPan - currentPan
+			tiltDistance := targetTilt - currentTilt
+			zoomDistance := targetZoom - currentZoom
+
+			// 4. Check if target reached
+			panReached := math.Abs(panDistance) < POSITION_TOLERANCE
+			tiltReached := math.Abs(tiltDistance) < POSITION_TOLERANCE
+			zoomReached := math.Abs(zoomDistance) < POSITION_TOLERANCE
+
+			if panReached && tiltReached && zoomReached {
+				// Stop camera
+				stopReq := ptz.Stop{
+					ProfileToken: request.ProfileToken,
+					PanTilt:      true,
+					Zoom:         true,
+				}
+				ptz_rpc.Call_Stop(ctx, dev, stopReq)
+				return status, nil // Success - return final status
 			}
-		}
 
-		// 6️⃣ Get final status
-		finalStatus, err := ptz_rpc.Call_GetStatus(ctx, dev, statusRequest)
-		if err != nil {
-			if lastError == nil {
-				lastError = fmt.Errorf("failed to get final status: %w", err)
+			// 5. Calculate speeds (proportional control)
+			calculateSpeed := func(distance float64) float64 {
+				if math.Abs(distance) < POSITION_TOLERANCE {
+					return 0.0
+				}
+
+				// Proportional speed based on distance
+				speed := distance * 2.0 // Gain factor
+
+				// Clamp to max speed
+				if math.Abs(speed) > MAX_SPEED {
+					if speed > 0 {
+						speed = MAX_SPEED
+					} else {
+						speed = -MAX_SPEED
+					}
+				} else if math.Abs(speed) < MIN_SPEED {
+					// Ensure minimum speed if not at target
+					if distance > 0 {
+						speed = MIN_SPEED
+					} else {
+						speed = -MIN_SPEED
+					}
+				}
+
+				return speed
 			}
-			// Use last known status if final status fails
-			finalStatus = initialStatus
-		}
 
-		// 7️⃣ Calculate final metrics
-		converged := consecutiveAtTarget >= convergenceCount
-		maxIterationsReached := iteration >= maxIterations
-		timedOut := lastError != nil && lastError.Error() == fmt.Sprintf("operation timeout after %v", timeoutDuration)
+			panSpeed := calculateSpeed(panDistance)
+			tiltSpeed := calculateSpeed(tiltDistance)
+			zoomSpeed := calculateSpeed(zoomDistance)
 
-		// Calculate position deltas
-		panDelta := float64(finalStatus.PTZStatus.Position.PanTilt.X) - float64(initialStatus.PTZStatus.Position.PanTilt.X)
-		tiltDelta := float64(finalStatus.PTZStatus.Position.PanTilt.Y) - float64(initialStatus.PTZStatus.Position.PanTilt.Y)
-		zoomDelta := float64(finalStatus.PTZStatus.Position.Zoom.X) - float64(initialStatus.PTZStatus.Position.Zoom.X)
-
-		// Calculate expected target position for comparison
-		targetBearing, targetDistance, _ := controller.CalculateBearingAndDistance(
-			request.Camera.Latitude, request.Camera.Longitude,
-			request.Target.Latitude, request.Target.Longitude)
-		heightDiff := request.Camera.Height - request.Target.Height
-		targetElevation := controller.CalculateElevationAngle(targetDistance, heightDiff)
-
-		// 8️⃣ Build comprehensive result
-		result := map[string]interface{}{
-			"status":                 finalStatus,
-			"converged":              converged,
-			"iterations":             iteration + 1, // +1 because we count from 0
-			"max_iterations_reached": maxIterationsReached,
-			"timed_out":              timedOut,
-			"total_distance_moved":   totalDistance,
-			"final_position": map[string]float64{
-				"pan":  float64(finalStatus.PTZStatus.Position.PanTilt.X),
-				"tilt": float64(finalStatus.PTZStatus.Position.PanTilt.Y),
-				"zoom": float64(finalStatus.PTZStatus.Position.Zoom.X),
-			},
-			"initial_position": map[string]float64{
-				"pan":  float64(initialStatus.PTZStatus.Position.PanTilt.X),
-				"tilt": float64(initialStatus.PTZStatus.Position.PanTilt.Y),
-				"zoom": float64(initialStatus.PTZStatus.Position.Zoom.X),
-			},
-			"position_delta": map[string]float64{
-				"pan":  panDelta,
-				"tilt": tiltDelta,
-				"zoom": zoomDelta,
-			},
-			"target_info": map[string]interface{}{
-				"bearing_degrees":   targetBearing,
-				"distance_meters":   targetDistance,
-				"elevation_degrees": targetElevation,
-			},
-			"movement_history":  movementHistory,
-			"execution_time_ms": float64(iteration+1) * float64(pollInterval.Milliseconds()),
-		}
-
-		fmt.Println(result)
-
-		// Add error info if present
-		if lastError != nil {
-			result["error"] = lastError.Error()
-			result["error_iteration"] = iteration
-			return result, fmt.Errorf("GeoMove2 completed with errors: %w", lastError)
-		}
-
-		// Add warning if didn't converge
-		if !converged {
-			if maxIterationsReached {
-				result["warning"] = fmt.Sprintf("Max iterations (%d) reached without convergence", maxIterations)
-			} else if timedOut {
-				result["warning"] = fmt.Sprintf("Operation timed out after %v", timeoutDuration)
+			// 6. Send continuous move command
+			moveReq := ptz.ContinuousMove{
+				ProfileToken: request.ProfileToken,
+				Velocity: xsd_onvif.PTZSpeed{
+					PanTilt: xsd_onvif.Vector2D{
+						X: panSpeed,
+						Y: tiltSpeed,
+					},
+					Zoom: xsd_onvif.Vector1D{
+						X: zoomSpeed,
+					},
+				},
 			}
+
+			if _, err := ptz_rpc.Call_ContinuousMove(ctx, dev, moveReq); err != nil {
+				// Stop on error
+				stopReq := ptz.Stop{
+					ProfileToken: request.ProfileToken,
+					PanTilt:      true,
+					Zoom:         true,
+				}
+				ptz_rpc.Call_Stop(ctx, dev, stopReq)
+				return nil, fmt.Errorf("continuous move failed: %w", err)
+			}
+
+			// 7. Wait before next iteration
+			time.Sleep(POLL_INTERVAL)
 		}
 
-		return result, nil
+	case "GeoMove2":
+		var request GeoMove2
+		if err := json.Unmarshal(data, &request); err != nil {
+			return nil, err
+		}
+
+		target := convertLatLongToXY(
+			request.TargetLatitude,
+			request.TargetLongitude,
+			request.SelfHeading,
+			request.SelfLatitude,
+			request.SelfLongitude,
+			request.CameraHeight,
+		)
+
+		targetPan := target.X
+		targetTilt := target.Y
+		targetZoom := request.Zoom
+
+		// Configuration
+		const (
+			POSITION_TOLERANCE = 0.1 // Acceptable position error
+			MAX_SPEED          = 0.3 // Maximum movement speed
+			MIN_SPEED          = 0.1 // Minimum speed to ensure movement
+			TIMEOUT            = 30 * time.Second
+			POLL_INTERVAL      = 100 * time.Millisecond
+		)
+
+		startTime := time.Now()
+
+		// Position control loop
+		for {
+			// 1. Check timeout
+			if time.Since(startTime) > TIMEOUT {
+				// Stop camera
+				stopReq := ptz.Stop{
+					ProfileToken: request.ProfileToken,
+					PanTilt:      true,
+					Zoom:         true,
+				}
+				ptz_rpc.Call_Stop(ctx, dev, stopReq)
+				return nil, fmt.Errorf("timeout: could not reach target position")
+			}
+
+			// 2. Get current position
+			statusReq := ptz.GetStatus{
+				ProfileToken: request.ProfileToken,
+			}
+			status, err := ptz_rpc.Call_GetStatus(ctx, dev, statusReq)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get status: %w", err)
+			}
+
+			currentPan := status.PTZStatus.Position.PanTilt.X
+			currentTilt := status.PTZStatus.Position.PanTilt.Y
+			currentZoom := status.PTZStatus.Position.Zoom.X
+
+			// 3. Calculate distances
+			panDistance := targetPan - currentPan
+			tiltDistance := targetTilt - currentTilt
+			zoomDistance := targetZoom - currentZoom
+
+			// 4. Check if target reached
+			panReached := math.Abs(panDistance) < POSITION_TOLERANCE
+			tiltReached := math.Abs(tiltDistance) < POSITION_TOLERANCE
+			zoomReached := math.Abs(zoomDistance) < POSITION_TOLERANCE
+
+			if panReached && tiltReached && zoomReached {
+				// Stop camera
+				stopReq := ptz.Stop{
+					ProfileToken: request.ProfileToken,
+					PanTilt:      true,
+					Zoom:         true,
+				}
+				ptz_rpc.Call_Stop(ctx, dev, stopReq)
+				return status, nil // Success - return final status
+			}
+
+			// 5. Calculate speeds (proportional control)
+			calculateSpeed := func(distance float64) float64 {
+				if math.Abs(distance) < POSITION_TOLERANCE {
+					return 0.0
+				}
+
+				// Proportional speed based on distance
+				speed := distance * 2.0 // Gain factor
+
+				// Clamp to max speed
+				if math.Abs(speed) > MAX_SPEED {
+					if speed > 0 {
+						speed = MAX_SPEED
+					} else {
+						speed = -MAX_SPEED
+					}
+				} else if math.Abs(speed) < MIN_SPEED {
+					// Ensure minimum speed if not at target
+					if distance > 0 {
+						speed = MIN_SPEED
+					} else {
+						speed = -MIN_SPEED
+					}
+				}
+
+				return speed
+			}
+
+			panSpeed := calculateSpeed(panDistance)
+			tiltSpeed := calculateSpeed(tiltDistance)
+			zoomSpeed := calculateSpeed(zoomDistance)
+
+			// 6. Send continuous move command
+			moveReq := ptz.ContinuousMove{
+				ProfileToken: request.ProfileToken,
+				Velocity: xsd_onvif.PTZSpeed{
+					PanTilt: xsd_onvif.Vector2D{
+						X: panSpeed,
+						Y: tiltSpeed,
+					},
+					Zoom: xsd_onvif.Vector1D{
+						X: zoomSpeed,
+					},
+				},
+			}
+
+			if _, err := ptz_rpc.Call_ContinuousMove(ctx, dev, moveReq); err != nil {
+				// Stop on error
+				stopReq := ptz.Stop{
+					ProfileToken: request.ProfileToken,
+					PanTilt:      true,
+					Zoom:         true,
+				}
+				ptz_rpc.Call_Stop(ctx, dev, stopReq)
+				return nil, fmt.Errorf("continuous move failed: %w", err)
+			}
+
+			// 7. Wait before next iteration
+			time.Sleep(POLL_INTERVAL)
+		}
 
 	default:
 		return nil, errors.New("unknown PTZ method: " + methodName)

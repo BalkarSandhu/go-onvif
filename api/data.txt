@@ -1,0 +1,35 @@
+Self Lat=23.770278 
+Self Long=86.843889
+Self Heading=341
+Camera Height=7.000000 m
+Target Lat=23.769722
+Target Long=86.846389 (at ground level)
+
+Horizontal Distance=262.104211 m 
+Height Diff=-7.000000 m
+Meters: X=254.691500
+Y=-61.893920 
+
+Rotated: 
+X=220.664855
+Y=-141.441293
+Pan Angle=122.658973°
+Tilt Angle=-1.529831°
+
+Final X=-1.181439, Y=-0.516998
+
+2025-10-27T15:26:17+05:30 DBG RPC action=GetStatus msg="200 OK" status=200
+2025-10-27T15:26:18+05:30 DBG RPC action=ContinuousMove msg="200 OK" status=200
+GeoMove2 Progress: Pan err=-0.321, Tilt err=-0.357, Zoom err=0.070
+2025-10-27T15:26:18+05:30 DBG RPC action=GetStatus msg="200 OK" status=200
+2025-10-27T15:26:18+05:30 DBG RPC action=ContinuousMove msg="200 OK" status=200
+GeoMove2 Progress: Pan err=-0.321, Tilt err=-0.357, Zoom err=0.070
+2025-10-27T15:26:18+05:30 DBG RPC action=GetStatus msg="200 OK" status=200
+2025-10-27T15:26:18+05:30 DBG RPC action=ContinuousMove msg="200 OK" status=200
+GeoMove2 Progress: Pan err=-0.301, Tilt err=-0.317, Zoom err=0.070
+2025-10-27T15:26:18+05:30 DBG RPC action=GetStatus msg="200 OK" status=200
+2025-10-27T15:26:19+05:30 DBG RPC action=ContinuousMove msg="200 OK" status=200
+GeoMove2 Progress: Pan err=-0.171, Tilt err=-0.167, Zoom err=0.070
+2025-10-27T15:26:19+05:30 DBG RPC action=GetStatus msg="200 OK" status=200
+2025-10-27T15:26:23+05:30 DBG RPC action=Stop msg="200 OK" status=200
+GeoMove2: Target reached - Pan=-1.1200, Tilt=-0.4800, Zoom=-0.9700
