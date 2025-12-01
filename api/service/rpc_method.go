@@ -12,6 +12,7 @@ import (
 	media_rpc "go-onvif/internal/sdk/media"
 	ptz_rpc "go-onvif/internal/sdk/ptz"
 	xsd_onvif "go-onvif/internal/xsd/onvif"
+	"log"
 
 	"math"
 	"time"
@@ -703,33 +704,101 @@ func CallPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface
 			return nil, err
 		}
 		return ptz_rpc.Call_GetCompatibleConfigurations(ctx, dev, request)
+
 	case "AbsoluteMove2":
 		var request AbsoluteMove2
 		if err := json.Unmarshal(data, &request); err != nil {
 			return nil, err
 		}
 
-		// Extract target position from request
 		targetPan := request.Position.PanTilt.X
 		targetTilt := request.Position.PanTilt.Y
 		targetZoom := request.Position.Zoom.X
 
-		// Configuration
+		log.Printf("[AbsoluteMove2] ========== NEW ABSOLUTE MOVE REQUEST ==========")
+		log.Printf("[AbsoluteMove2] Target Position - Pan: %.3f, Tilt: %.3f, Zoom: %.3f",
+			targetPan, targetTilt, targetZoom)
+
 		const (
-			POSITION_TOLERANCE = 0.05 // Acceptable position error
-			MAX_SPEED          = 0.5  // Maximum movement speed
-			MIN_SPEED          = 0.1  // Minimum speed to ensure movement
-			TIMEOUT            = 30 * time.Second
-			POLL_INTERVAL      = 100 * time.Millisecond
+			POSITION_TOLERANCE = 0.05
+			MAX_SPEED          = 0.9
+			MIN_SPEED          = 0.1
+			TIMEOUT            = 60 * time.Second
+			BASE_POLL_INTERVAL = 50 * time.Millisecond
+
+			PAN_RANGE       = 2.0
+			TILT_RANGE      = 2.0
+			ZOOM_RANGE      = 1.0
+			TILT_FLIP_POINT = -1.0
+
+			SLOW_DISTANCE = 0.15
+			FAST_DISTANCE = 0.5
+
+			STUCK_THRESHOLD  = 3
+			STUCK_TOLERANCE  = 0.01
+			BOOST_MULTIPLIER = 1.5
 		)
 
 		startTime := time.Now()
 
-		// Position control loop
+		calculateDistance := func(target, current float64) float64 {
+			return target - current
+		}
+
+		calculateSpeed := func(distance float64, axisRange float64) float64 {
+			absDist := math.Abs(distance)
+
+			if absDist < POSITION_TOLERANCE {
+				return 0.0
+			}
+
+			var speed float64
+			if absDist >= FAST_DISTANCE {
+				speed = MAX_SPEED
+			} else if absDist <= SLOW_DISTANCE {
+				ratio := absDist / SLOW_DISTANCE
+				speed = MIN_SPEED + (MAX_SPEED-MIN_SPEED)*ratio*ratio
+			} else {
+				ratio := (absDist - SLOW_DISTANCE) / (FAST_DISTANCE - SLOW_DISTANCE)
+				speed = MIN_SPEED + (MAX_SPEED-MIN_SPEED)*ratio
+			}
+
+			if speed < MIN_SPEED {
+				speed = MIN_SPEED
+			}
+
+			if distance < 0 {
+				speed = -speed
+			}
+
+			return speed
+		}
+
+		type AxisState struct {
+			position   float64
+			stuckCount int
+		}
+
+		panState := AxisState{position: 999, stuckCount: 0}
+		tiltState := AxisState{position: 999, stuckCount: 0}
+		zoomState := AxisState{position: 999, stuckCount: 0}
+
+		checkStuck := func(state *AxisState, current float64) bool {
+			if math.Abs(current-state.position) < STUCK_TOLERANCE {
+				state.stuckCount++
+			} else {
+				state.stuckCount = 0
+			}
+			state.position = current
+			return state.stuckCount >= STUCK_THRESHOLD
+		}
+
+		iteration := 0
 		for {
-			// 1. Check timeout
+			iteration++
+
 			if time.Since(startTime) > TIMEOUT {
-				// Stop camera
+				log.Printf("[AbsoluteMove2] TIMEOUT after %v iterations", iteration)
 				stopReq := ptz.Stop{
 					ProfileToken: request.ProfileToken,
 					PanTilt:      true,
@@ -739,12 +808,12 @@ func CallPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface
 				return nil, fmt.Errorf("timeout: could not reach target position")
 			}
 
-			// 2. Get current position
 			statusReq := ptz.GetStatus{
 				ProfileToken: request.ProfileToken,
 			}
 			status, err := ptz_rpc.Call_GetStatus(ctx, dev, statusReq)
 			if err != nil {
+				log.Printf("[AbsoluteMove2] ERROR getting status: %v", err)
 				return nil, fmt.Errorf("failed to get status: %w", err)
 			}
 
@@ -752,86 +821,161 @@ func CallPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface
 			currentTilt := status.PTZStatus.Position.PanTilt.Y
 			currentZoom := status.PTZStatus.Position.Zoom.X
 
-			// 3. Calculate distances
-			panDistance := targetPan - currentPan
-			tiltDistance := targetTilt - currentTilt
-			zoomDistance := targetZoom - currentZoom
+			panDistance := calculateDistance(targetPan, currentPan)
+			tiltDistance := calculateDistance(targetTilt, currentTilt)
+			zoomDistance := calculateDistance(targetZoom, currentZoom)
 
-			// 4. Check if target reached
 			panReached := math.Abs(panDistance) < POSITION_TOLERANCE
 			tiltReached := math.Abs(tiltDistance) < POSITION_TOLERANCE
 			zoomReached := math.Abs(zoomDistance) < POSITION_TOLERANCE
 
 			if panReached && tiltReached && zoomReached {
-				// Stop camera
+				log.Printf("[AbsoluteMove2] ✓ TARGET REACHED in %d iterations (%.2fs)",
+					iteration, time.Since(startTime).Seconds())
+				log.Printf("[AbsoluteMove2] Final Position - Pan: %.3f, Tilt: %.3f, Zoom: %.3f",
+					currentPan, currentTilt, currentZoom)
+
 				stopReq := ptz.Stop{
 					ProfileToken: request.ProfileToken,
 					PanTilt:      true,
 					Zoom:         true,
 				}
 				ptz_rpc.Call_Stop(ctx, dev, stopReq)
-				return status, nil // Success - return final status
+				return status, nil
 			}
 
-			// 5. Calculate speeds (proportional control)
-			calculateSpeed := func(distance float64) float64 {
-				if math.Abs(distance) < POSITION_TOLERANCE {
-					return 0.0
+			var panStuck, tiltStuck, zoomStuck bool
+			if !panReached {
+				panStuck = checkStuck(&panState, currentPan)
+			} else {
+				panState.stuckCount = 0
+			}
+			if !tiltReached {
+				tiltStuck = checkStuck(&tiltState, currentTilt)
+			} else {
+				tiltState.stuckCount = 0
+			}
+			if !zoomReached {
+				zoomStuck = checkStuck(&zoomState, currentZoom)
+			} else {
+				zoomState.stuckCount = 0
+			}
+
+			var tiltSpeedMultiplier float64 = 1.0
+			var flipZone string = "normal"
+
+			if currentTilt < TILT_FLIP_POINT && targetTilt < TILT_FLIP_POINT {
+				tiltSpeedMultiplier = -1.0
+				flipZone = "both_flipped"
+			} else if currentTilt < TILT_FLIP_POINT && targetTilt > TILT_FLIP_POINT {
+				tiltSpeedMultiplier = -1.0
+				flipZone = "flipped->normal"
+			} else if currentTilt > TILT_FLIP_POINT && targetTilt < TILT_FLIP_POINT {
+				tiltSpeedMultiplier = 1.0
+				flipZone = "normal->flipped"
+			} else {
+				tiltSpeedMultiplier = 1.0
+				flipZone = "both_normal"
+			}
+
+			var panSpeed, tiltSpeed, zoomSpeed float64
+
+			if panReached {
+				panSpeed = 0
+			} else {
+				panSpeed = calculateSpeed(panDistance, PAN_RANGE)
+			}
+
+			if tiltReached {
+				tiltSpeed = 0
+			} else {
+				tiltSpeed = calculateSpeed(tiltDistance, TILT_RANGE) * tiltSpeedMultiplier
+			}
+
+			if zoomReached {
+				zoomSpeed = 0
+			} else {
+				zoomSpeed = calculateSpeed(zoomDistance, ZOOM_RANGE)
+			}
+
+			var boostInfo string = ""
+			if panStuck {
+				oldSpeed := panSpeed
+				panSpeed *= BOOST_MULTIPLIER
+				if math.Abs(panSpeed) > MAX_SPEED {
+					panSpeed = MAX_SPEED * math.Copysign(1, panSpeed)
 				}
-
-				// Proportional speed based on distance
-				speed := distance * 2.0 // Gain factor
-
-				// Clamp to max speed
-				if math.Abs(speed) > MAX_SPEED {
-					if speed > 0 {
-						speed = MAX_SPEED
-					} else {
-						speed = -MAX_SPEED
-					}
-				} else if math.Abs(speed) < MIN_SPEED {
-					// Ensure minimum speed if not at target
-					if distance > 0 {
-						speed = MIN_SPEED
-					} else {
-						speed = -MIN_SPEED
-					}
+				boostInfo += " PAN_BOOST"
+				log.Printf("[AbsoluteMove2] ⚡ PAN STUCK - Boosting speed: %.3f -> %.3f", oldSpeed, panSpeed)
+			}
+			if tiltStuck {
+				oldSpeed := tiltSpeed
+				tiltSpeed *= BOOST_MULTIPLIER
+				if math.Abs(tiltSpeed) > MAX_SPEED {
+					tiltSpeed = MAX_SPEED * math.Copysign(1, tiltSpeed)
 				}
-
-				return speed
+				boostInfo += " TILT_BOOST"
+				log.Printf("[AbsoluteMove2] ⚡ TILT STUCK - Boosting speed: %.3f -> %.3f", oldSpeed, tiltSpeed)
+			}
+			if zoomStuck {
+				oldSpeed := zoomSpeed
+				zoomSpeed *= BOOST_MULTIPLIER
+				if math.Abs(zoomSpeed) > MAX_SPEED {
+					zoomSpeed = MAX_SPEED * math.Copysign(1, zoomSpeed)
+				}
+				boostInfo += " ZOOM_BOOST"
+				log.Printf("[AbsoluteMove2] ⚡ ZOOM STUCK - Boosting speed: %.3f -> %.3f", oldSpeed, zoomSpeed)
 			}
 
-			panSpeed := calculateSpeed(panDistance)
-			tiltSpeed := calculateSpeed(tiltDistance)
-			zoomSpeed := calculateSpeed(zoomDistance)
+			log.Printf("[AbsoluteMove2] Iter %d:%s", iteration, boostInfo)
+			log.Printf("  Target    - Pan: %.3f, Tilt: %.3f, Zoom: %.3f", targetPan, targetTilt, targetZoom)
+			log.Printf("  Current   - Pan: %.3f, Tilt: %.3f, Zoom: %.3f", currentPan, currentTilt, currentZoom)
+			log.Printf("  Distance  - Pan: %.3f, Tilt: %.3f, Zoom: %.3f", panDistance, tiltDistance, zoomDistance)
+			log.Printf("  Speed     - Pan: %.3f, Tilt: %.3f (mult: %.1f, zone: %s), Zoom: %.3f",
+				panSpeed, tiltSpeed, tiltSpeedMultiplier, flipZone, zoomSpeed)
+			log.Printf("  Stuck     - Pan: %v(%d), Tilt: %v(%d), Zoom: %v(%d)",
+				panStuck, panState.stuckCount, tiltStuck, tiltState.stuckCount, zoomStuck, zoomState.stuckCount)
+			log.Printf("  Reached   - Pan: %v, Tilt: %v, Zoom: %v", panReached, tiltReached, zoomReached)
 
-			// 6. Send continuous move command
-			moveReq := ptz.ContinuousMove{
-				ProfileToken: request.ProfileToken,
-				Velocity: xsd_onvif.PTZSpeed{
-					PanTilt: xsd_onvif.Vector2D{
-						X: panSpeed,
-						Y: tiltSpeed,
-					},
-					Zoom: xsd_onvif.Vector1D{
-						X: zoomSpeed,
-					},
-				},
-			}
-
-			if _, err := ptz_rpc.Call_ContinuousMove(ctx, dev, moveReq); err != nil {
-				// Stop on error
-				stopReq := ptz.Stop{
+			if panSpeed != 0 || tiltSpeed != 0 || zoomSpeed != 0 {
+				moveReq := ptz.ContinuousMove{
 					ProfileToken: request.ProfileToken,
-					PanTilt:      true,
-					Zoom:         true,
+					Velocity: xsd_onvif.PTZSpeed{
+						PanTilt: xsd_onvif.Vector2D{
+							X: panSpeed,
+							Y: tiltSpeed,
+						},
+						Zoom: xsd_onvif.Vector1D{
+							X: zoomSpeed,
+						},
+					},
 				}
-				ptz_rpc.Call_Stop(ctx, dev, stopReq)
-				return nil, fmt.Errorf("continuous move failed: %w", err)
+
+				if _, err := ptz_rpc.Call_ContinuousMove(ctx, dev, moveReq); err != nil {
+					log.Printf("[AbsoluteMove2] ERROR on continuous move: %v", err)
+					stopReq := ptz.Stop{
+						ProfileToken: request.ProfileToken,
+						PanTilt:      true,
+						Zoom:         true,
+					}
+					ptz_rpc.Call_Stop(ctx, dev, stopReq)
+					return nil, fmt.Errorf("continuous move failed: %w", err)
+				}
 			}
 
-			// 7. Wait before next iteration
-			time.Sleep(POLL_INTERVAL)
+			maxAbsSpeed := math.Max(math.Max(math.Abs(panSpeed), math.Abs(tiltSpeed)), math.Abs(zoomSpeed))
+			maxDistance := math.Max(math.Max(math.Abs(panDistance), math.Abs(tiltDistance)), math.Abs(zoomDistance))
+
+			var waitTime time.Duration
+			if maxAbsSpeed >= 0.7 && maxDistance > 0.3 {
+				waitTime = 100 * time.Millisecond
+			} else if maxAbsSpeed >= 0.4 && maxDistance > 0.15 {
+				waitTime = 80 * time.Millisecond
+			} else {
+				waitTime = BASE_POLL_INTERVAL
+			}
+
+			time.Sleep(waitTime)
 		}
 
 	case "GeoMove2":
@@ -853,22 +997,92 @@ func CallPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface
 		targetTilt := target.Y
 		targetZoom := request.Zoom
 
-		// Configuration
+		log.Printf("[GeoMove2] ========== NEW GEO MOVE REQUEST ==========")
+		log.Printf("[GeoMove2] Target GPS - Lat: %.6f, Lon: %.6f", request.TargetLatitude, request.TargetLongitude)
+		log.Printf("[GeoMove2] Self GPS   - Lat: %.6f, Lon: %.6f, Heading: %d°",
+			request.SelfLatitude, request.SelfLongitude, request.SelfHeading)
+		log.Printf("[GeoMove2] Calculated - Pan: %.3f, Tilt: %.3f, Zoom: %.3f", targetPan, targetTilt, targetZoom)
+
 		const (
-			POSITION_TOLERANCE = 0.1 // Acceptable position error
-			MAX_SPEED          = 0.3 // Maximum movement speed
-			MIN_SPEED          = 0.1 // Minimum speed to ensure movement
-			TIMEOUT            = 30 * time.Second
-			POLL_INTERVAL      = 100 * time.Millisecond
+			POSITION_TOLERANCE = 0.02
+			MAX_SPEED          = 0.9
+			MIN_SPEED          = 0.1
+			TIMEOUT            = 60 * time.Second
+			BASE_POLL_INTERVAL = 50 * time.Millisecond
+
+			PAN_RANGE       = 2.0
+			TILT_RANGE      = 2.0
+			ZOOM_RANGE      = 1.0
+			TILT_FLIP_POINT = -1.0
+
+			SLOW_DISTANCE = 0.15
+			FAST_DISTANCE = 0.5
+
+			STUCK_THRESHOLD  = 3
+			STUCK_TOLERANCE  = 0.01
+			BOOST_MULTIPLIER = 1.5
 		)
 
 		startTime := time.Now()
 
-		// Position control loop
+		calculateDistance := func(target, current float64) float64 {
+			return target - current
+		}
+
+		calculateSpeed := func(distance float64, axisRange float64) float64 {
+			absDist := math.Abs(distance)
+
+			if absDist < POSITION_TOLERANCE {
+				return 0.0
+			}
+
+			var speed float64
+			if absDist >= FAST_DISTANCE {
+				speed = MAX_SPEED
+			} else if absDist <= SLOW_DISTANCE {
+				ratio := absDist / SLOW_DISTANCE
+				speed = MIN_SPEED + (MAX_SPEED-MIN_SPEED)*ratio*ratio
+			} else {
+				ratio := (absDist - SLOW_DISTANCE) / (FAST_DISTANCE - SLOW_DISTANCE)
+				speed = MIN_SPEED + (MAX_SPEED-MIN_SPEED)*ratio
+			}
+
+			if speed < MIN_SPEED {
+				speed = MIN_SPEED
+			}
+
+			if distance < 0 {
+				speed = -speed
+			}
+
+			return speed
+		}
+
+		type AxisState struct {
+			position   float64
+			stuckCount int
+		}
+
+		panState := AxisState{position: 999, stuckCount: 0}
+		tiltState := AxisState{position: 999, stuckCount: 0}
+		zoomState := AxisState{position: 999, stuckCount: 0}
+
+		checkStuck := func(state *AxisState, current float64) bool {
+			if math.Abs(current-state.position) < STUCK_TOLERANCE {
+				state.stuckCount++
+			} else {
+				state.stuckCount = 0
+			}
+			state.position = current
+			return state.stuckCount >= STUCK_THRESHOLD
+		}
+
+		iteration := 0
 		for {
-			// 1. Check timeout
+			iteration++
+
 			if time.Since(startTime) > TIMEOUT {
-				// Stop camera
+				log.Printf("[GeoMove2] TIMEOUT after %v iterations", iteration)
 				stopReq := ptz.Stop{
 					ProfileToken: request.ProfileToken,
 					PanTilt:      true,
@@ -878,12 +1092,12 @@ func CallPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface
 				return nil, fmt.Errorf("timeout: could not reach target position")
 			}
 
-			// 2. Get current position
 			statusReq := ptz.GetStatus{
 				ProfileToken: request.ProfileToken,
 			}
 			status, err := ptz_rpc.Call_GetStatus(ctx, dev, statusReq)
 			if err != nil {
+				log.Printf("[GeoMove2] ERROR getting status: %v", err)
 				return nil, fmt.Errorf("failed to get status: %w", err)
 			}
 
@@ -891,88 +1105,162 @@ func CallPTZMethod(methodName string, dev *onvif.Device, data []byte) (interface
 			currentTilt := status.PTZStatus.Position.PanTilt.Y
 			currentZoom := status.PTZStatus.Position.Zoom.X
 
-			// 3. Calculate distances
-			panDistance := targetPan - currentPan
-			tiltDistance := targetTilt - currentTilt
-			zoomDistance := targetZoom - currentZoom
+			panDistance := calculateDistance(targetPan, currentPan)
+			tiltDistance := calculateDistance(targetTilt, currentTilt)
+			zoomDistance := calculateDistance(targetZoom, currentZoom)
 
-			// 4. Check if target reached
 			panReached := math.Abs(panDistance) < POSITION_TOLERANCE
 			tiltReached := math.Abs(tiltDistance) < POSITION_TOLERANCE
 			zoomReached := math.Abs(zoomDistance) < POSITION_TOLERANCE
 
 			if panReached && tiltReached && zoomReached {
-				// Stop camera
+				log.Printf("[GeoMove2] ✓ TARGET REACHED in %d iterations (%.2fs)",
+					iteration, time.Since(startTime).Seconds())
+				log.Printf("[GeoMove2] Final Position - Pan: %.3f, Tilt: %.3f, Zoom: %.3f",
+					currentPan, currentTilt, currentZoom)
+
 				stopReq := ptz.Stop{
 					ProfileToken: request.ProfileToken,
 					PanTilt:      true,
 					Zoom:         true,
 				}
 				ptz_rpc.Call_Stop(ctx, dev, stopReq)
-				return status, nil // Success - return final status
+				return status, nil
 			}
 
-			// 5. Calculate speeds (proportional control)
-			calculateSpeed := func(distance float64) float64 {
-				if math.Abs(distance) < POSITION_TOLERANCE {
-					return 0.0
+			var panStuck, tiltStuck, zoomStuck bool
+			if !panReached {
+				panStuck = checkStuck(&panState, currentPan)
+			} else {
+				panState.stuckCount = 0
+			}
+			if !tiltReached {
+				tiltStuck = checkStuck(&tiltState, currentTilt)
+			} else {
+				tiltState.stuckCount = 0
+			}
+			if !zoomReached {
+				zoomStuck = checkStuck(&zoomState, currentZoom)
+			} else {
+				zoomState.stuckCount = 0
+			}
+
+			var tiltSpeedMultiplier float64 = 1.0
+			var flipZone string = "normal"
+
+			if currentTilt < TILT_FLIP_POINT && targetTilt < TILT_FLIP_POINT {
+				tiltSpeedMultiplier = -1.0
+				flipZone = "both_flipped"
+			} else if currentTilt < TILT_FLIP_POINT && targetTilt > TILT_FLIP_POINT {
+				tiltSpeedMultiplier = -1.0
+				flipZone = "flipped->normal"
+			} else if currentTilt > TILT_FLIP_POINT && targetTilt < TILT_FLIP_POINT {
+				tiltSpeedMultiplier = 1.0
+				flipZone = "normal->flipped"
+			} else {
+				tiltSpeedMultiplier = 1.0
+				flipZone = "both_normal"
+			}
+
+			var panSpeed, tiltSpeed, zoomSpeed float64
+
+			if panReached {
+				panSpeed = 0
+			} else {
+				panSpeed = calculateSpeed(panDistance, PAN_RANGE)
+			}
+
+			if tiltReached {
+				tiltSpeed = 0
+			} else {
+				tiltSpeed = calculateSpeed(tiltDistance, TILT_RANGE) * tiltSpeedMultiplier
+			}
+
+			if zoomReached {
+				zoomSpeed = 0
+			} else {
+				zoomSpeed = calculateSpeed(zoomDistance, ZOOM_RANGE)
+			}
+
+			var boostInfo string = ""
+			if panStuck {
+				oldSpeed := panSpeed
+				panSpeed *= BOOST_MULTIPLIER
+				if math.Abs(panSpeed) > MAX_SPEED {
+					panSpeed = MAX_SPEED * math.Copysign(1, panSpeed)
 				}
-
-				// Proportional speed based on distance
-				speed := distance * 2.0 // Gain factor
-
-				// Clamp to max speed
-				if math.Abs(speed) > MAX_SPEED {
-					if speed > 0 {
-						speed = MAX_SPEED
-					} else {
-						speed = -MAX_SPEED
-					}
-				} else if math.Abs(speed) < MIN_SPEED {
-					// Ensure minimum speed if not at target
-					if distance > 0 {
-						speed = MIN_SPEED
-					} else {
-						speed = -MIN_SPEED
-					}
+				boostInfo += " PAN_BOOST"
+				log.Printf("[GeoMove2] ⚡ PAN STUCK - Boosting speed: %.3f -> %.3f", oldSpeed, panSpeed)
+			}
+			if tiltStuck {
+				oldSpeed := tiltSpeed
+				tiltSpeed *= BOOST_MULTIPLIER
+				if math.Abs(tiltSpeed) > MAX_SPEED {
+					tiltSpeed = MAX_SPEED * math.Copysign(1, tiltSpeed)
 				}
-
-				return speed
+				boostInfo += " TILT_BOOST"
+				log.Printf("[GeoMove2] ⚡ TILT STUCK - Boosting speed: %.3f -> %.3f", oldSpeed, tiltSpeed)
+			}
+			if zoomStuck {
+				oldSpeed := zoomSpeed
+				zoomSpeed *= BOOST_MULTIPLIER
+				if math.Abs(zoomSpeed) > MAX_SPEED {
+					zoomSpeed = MAX_SPEED * math.Copysign(1, zoomSpeed)
+				}
+				boostInfo += " ZOOM_BOOST"
+				log.Printf("[GeoMove2] ⚡ ZOOM STUCK - Boosting speed: %.3f -> %.3f", oldSpeed, zoomSpeed)
 			}
 
-			panSpeed := calculateSpeed(panDistance)
-			tiltSpeed := calculateSpeed(tiltDistance)
-			zoomSpeed := calculateSpeed(zoomDistance)
+			log.Printf("[GeoMove2] Iter %d:%s", iteration, boostInfo)
+			log.Printf("  Target    - Pan: %.3f, Tilt: %.3f, Zoom: %.3f", targetPan, targetTilt, targetZoom)
+			log.Printf("  Current   - Pan: %.3f, Tilt: %.3f, Zoom: %.3f", currentPan, currentTilt, currentZoom)
+			log.Printf("  Distance  - Pan: %.3f, Tilt: %.3f, Zoom: %.3f", panDistance, tiltDistance, zoomDistance)
+			log.Printf("  Speed     - Pan: %.3f, Tilt: %.3f (mult: %.1f, zone: %s), Zoom: %.3f",
+				panSpeed, tiltSpeed, tiltSpeedMultiplier, flipZone, zoomSpeed)
+			log.Printf("  Stuck     - Pan: %v(%d), Tilt: %v(%d), Zoom: %v(%d)",
+				panStuck, panState.stuckCount, tiltStuck, tiltState.stuckCount, zoomStuck, zoomState.stuckCount)
+			log.Printf("  Reached   - Pan: %v, Tilt: %v, Zoom: %v", panReached, tiltReached, zoomReached)
 
-			// 6. Send continuous move command
-			moveReq := ptz.ContinuousMove{
-				ProfileToken: request.ProfileToken,
-				Velocity: xsd_onvif.PTZSpeed{
-					PanTilt: xsd_onvif.Vector2D{
-						X: panSpeed,
-						Y: tiltSpeed,
-					},
-					Zoom: xsd_onvif.Vector1D{
-						X: zoomSpeed,
-					},
-				},
-			}
-
-			if _, err := ptz_rpc.Call_ContinuousMove(ctx, dev, moveReq); err != nil {
-				// Stop on error
-				stopReq := ptz.Stop{
+			if panSpeed != 0 || tiltSpeed != 0 || zoomSpeed != 0 {
+				moveReq := ptz.ContinuousMove{
 					ProfileToken: request.ProfileToken,
-					PanTilt:      true,
-					Zoom:         true,
+					Velocity: xsd_onvif.PTZSpeed{
+						PanTilt: xsd_onvif.Vector2D{
+							X: panSpeed,
+							Y: tiltSpeed,
+						},
+						Zoom: xsd_onvif.Vector1D{
+							X: zoomSpeed,
+						},
+					},
 				}
-				ptz_rpc.Call_Stop(ctx, dev, stopReq)
-				return nil, fmt.Errorf("continuous move failed: %w", err)
+
+				if _, err := ptz_rpc.Call_ContinuousMove(ctx, dev, moveReq); err != nil {
+					log.Printf("[GeoMove2] ERROR on continuous move: %v", err)
+					stopReq := ptz.Stop{
+						ProfileToken: request.ProfileToken,
+						PanTilt:      true,
+						Zoom:         true,
+					}
+					ptz_rpc.Call_Stop(ctx, dev, stopReq)
+					return nil, fmt.Errorf("continuous move failed: %w", err)
+				}
 			}
 
-			// 7. Wait before next iteration
-			time.Sleep(POLL_INTERVAL)
+			maxAbsSpeed := math.Max(math.Max(math.Abs(panSpeed), math.Abs(tiltSpeed)), math.Abs(zoomSpeed))
+			maxDistance := math.Max(math.Max(math.Abs(panDistance), math.Abs(tiltDistance)), math.Abs(zoomDistance))
+
+			var waitTime time.Duration
+			if maxAbsSpeed >= 0.7 && maxDistance > 0.3 {
+				waitTime = 100 * time.Millisecond
+			} else if maxAbsSpeed >= 0.4 && maxDistance > 0.15 {
+				waitTime = 80 * time.Millisecond
+			} else {
+				waitTime = BASE_POLL_INTERVAL
+			}
+
+			time.Sleep(waitTime)
 		}
-
 	default:
 		return nil, errors.New("unknown PTZ method: " + methodName)
 	}

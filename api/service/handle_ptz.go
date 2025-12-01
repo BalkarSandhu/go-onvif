@@ -48,20 +48,19 @@ func degreesToRadians(degrees float64) float64 {
 
 // Helper function to get meters per degree of latitude
 func metersPerDegreeLatitude() float64 {
-	// Approximately 111,320 meters per degree of latitude (constant everywhere)
 	return 111320.0
 }
 
 // Helper function to get meters per degree of longitude at a given latitude
 func metersPerDegreeLongitude(latitude float64) float64 {
-	// Meters per degree of longitude varies with latitude
-	// Formula: 111,320 × cos(latitude)
 	return 111320.0 * math.Cos(degreesToRadians(latitude))
 }
 
 // Main conversion function
 // cameraHeight: height of camera/sensor above ground in meters (e.g., 10 meters for tower height)
 func convertLatLongToXY(targetLatitude, targetLongitude float64, selfHeading uint32, selfLatitude, selfLongitude float64, cameraHeight float64) Target {
+	const MAX_VIEWING_DISTANCE = 50.0 // meters
+
 	// Step 1: Calculate the difference in latitude and longitude
 	latDiff := targetLatitude - selfLatitude
 	longDiff := targetLongitude - selfLongitude
@@ -74,44 +73,45 @@ func convertLatLongToXY(targetLatitude, targetLongitude float64, selfHeading uin
 	theta := degreesToRadians(float64(selfHeading))
 
 	// Step 4: Rotate coordinates from world frame to vehicle/camera frame
-	// Apply inverse rotation to align with vehicle's heading
 	rotatedX := xMeters*math.Cos(-theta) + yMeters*math.Sin(-theta)
 	rotatedY := yMeters*math.Cos(-theta) - xMeters*math.Sin(-theta)
 
-	// Step 5: Calculate the pan angle (horizontal angle from forward direction)
-	// atan2(x, y) gives angle in radians from forward axis
-	// Result range: [-π, π] where 0 is forward, π/2 is right, -π/2 is left
+	// Step 5: Calculate the pan angle
 	panAngleRad := math.Atan2(rotatedX, rotatedY)
 
-	// Step 6: Calculate horizontal distance and tilt angle
+	// Step 6: Calculate horizontal distance
 	horizontalDistance := math.Sqrt(rotatedX*rotatedX + rotatedY*rotatedY)
 
-	// Calculate height difference
-	// Since target is on ground and camera is elevated, height difference is negative
-	// (looking down from camera to target)
+	// Step 7: Calculate tilt angle - always use max viewing distance for tilt
+	// This ensures camera looks at ground within visible range, not at horizon
+	// Pan points in correct direction, tilt shows what's actually visible
 	heightDiff := -cameraHeight
 
-	// atan2(height, distance) gives elevation angle
-	// Result range: [-π/2, π/2] where 0 is level, positive is up, negative is down
-	// With negative heightDiff, this will give a negative angle (looking down)
-	tiltAngleRad := math.Atan2(heightDiff, horizontalDistance)
+	effectiveDistance := horizontalDistance
+	if effectiveDistance > MAX_VIEWING_DISTANCE {
+		effectiveDistance = MAX_VIEWING_DISTANCE
+	}
 
-	// Step 7: Convert angles to your coordinate system [-2, 0]
+	// Calculate tilt to look at ground at effective distance
+	// For far targets: shows ground at 50m in that direction
+	// For near targets: shows actual target location
+	tiltAngleRad := math.Atan2(heightDiff, effectiveDistance)
+
+	// Step 8: Convert angles to coordinate system [-2, 0]
 	// Pan mapping: 0° → -0.5, 90° → -1.0, 180° → -1.5, -90° → 0.0
 	targetX := -0.5 - (panAngleRad / math.Pi)
 
-	// Tilt mapping: 0° → -0.5, -90° → -1.0, 90° → 0.0, 180° → -1.5
-	// Note: We add (not subtract) because positive angle (up) should move toward 0
+	// Tilt mapping: 0° → -0.5, -90° → -1.0, 90° → 0.0
 	targetY := -0.5 + (tiltAngleRad / (math.Pi / 2))
 
-	// Step 8: Wrap X to [-2, 0] range
+	// Step 9: Wrap X to [-2, 0] range
 	if targetX < -2.0 {
 		targetX += 2.0
 	} else if targetX > 0.0 {
 		targetX -= 2.0
 	}
 
-	// Step 9: Wrap Y to [-2, 0] range
+	// Step 10: Wrap Y to [-2, 0] range
 	if targetY < -2.0 {
 		targetY += 2.0
 	} else if targetY > 0.0 {
